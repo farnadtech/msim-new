@@ -218,11 +218,68 @@ export const addSimCard = async (simData: Omit<SimCard, 'id'>): Promise<string> 
             
             const simCardId = retryData[0].id;
             
+            // Handle financial transactions for the seller
+            let transactionAmount = 0;
+            let transactionDescription = '';
+            
+            // If this is a rond sim card, charge 5000 tomans
+            if (simData.is_rond) {
+                transactionAmount -= 5000;
+                transactionDescription = `هزینه ثبت سیمکارت رند ${simData.number}`;
+            }
+            
+            // If this is an auction sim card, charge additional fee
+            if (simData.type === 'auction') {
+                // For auction cards, we charge 5000 tomans regardless of being rond or not
+                transactionAmount -= 5000;
+                if (transactionDescription) {
+                    transactionDescription += ' و ';
+                }
+                transactionDescription += `هزینه ثبت سیمکارت حراجی ${simData.number}`;
+            }
+            
+            // Process the transaction if there's a charge
+            if (transactionAmount < 0) {
+                const { error: transactionError } = await supabase
+                    .from('transactions')
+                    .insert({
+                        user_id: simData.seller_id,
+                        type: 'withdrawal',
+                        amount: transactionAmount,
+                        description: transactionDescription,
+                        date: new Date().toISOString()
+                    });
+                    
+                if (transactionError) {
+                    // If transaction fails, we should delete the sim card
+                    await supabase
+                        .from('sim_cards')
+                        .delete()
+                        .eq('id', simCardId);
+                    throw new Error('خطا در پردازش هزینه ثبت سیمکارت: ' + transactionError.message);
+                }
+                
+                // Update seller's wallet balance
+                const { data: sellerData, error: sellerError } = await supabase
+                    .from('users')
+                    .select('wallet_balance')
+                    .eq('id', simData.seller_id)
+                    .single();
+                    
+                if (!sellerError && sellerData) {
+                    const newBalance = (sellerData.wallet_balance || 0) + transactionAmount;
+                    await supabase
+                        .from('users')
+                        .update({ wallet_balance: newBalance })
+                        .eq('id', simData.seller_id);
+                }
+            }
+            
             // If this is an auction sim card, create auction details
             if (simData.type === 'auction') {
                 const auctionDetails = {
                     sim_card_id: simCardId,
-                    current_bid: simData.price || 0,
+                    current_bid: simData.price || 0, // Use the price set by the seller as the starting bid
                     highest_bidder_id: null,
                     end_time: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // 7 days from now
                 };
@@ -249,11 +306,68 @@ export const addSimCard = async (simData: Omit<SimCard, 'id'>): Promise<string> 
     
     const simCardId = simCardData[0].id;
     
+    // Handle financial transactions for the seller
+    let transactionAmount = 0;
+    let transactionDescription = '';
+    
+    // If this is a rond sim card, charge 5000 tomans
+    if (simData.is_rond) {
+        transactionAmount -= 5000;
+        transactionDescription = `هزینه ثبت سیمکارت رند ${simData.number}`;
+    }
+    
+    // If this is an auction sim card, charge additional fee
+    if (simData.type === 'auction') {
+        // For auction cards, we charge 5000 tomans regardless of being rond or not
+        transactionAmount -= 5000;
+        if (transactionDescription) {
+            transactionDescription += ' و ';
+        }
+        transactionDescription += `هزینه ثبت سیمکارت حراجی ${simData.number}`;
+    }
+    
+    // Process the transaction if there's a charge
+    if (transactionAmount < 0) {
+        const { error: transactionError } = await supabase
+            .from('transactions')
+            .insert({
+                user_id: simData.seller_id,
+                type: 'withdrawal',
+                amount: transactionAmount,
+                description: transactionDescription,
+                date: new Date().toISOString()
+            });
+            
+        if (transactionError) {
+            // If transaction fails, we should delete the sim card
+            await supabase
+                .from('sim_cards')
+                .delete()
+                .eq('id', simCardId);
+            throw new Error('خطا در پردازش هزینه ثبت سیمکارت: ' + transactionError.message);
+        }
+        
+        // Update seller's wallet balance
+        const { data: sellerData, error: sellerError } = await supabase
+            .from('users')
+            .select('wallet_balance')
+            .eq('id', simData.seller_id)
+            .single();
+            
+        if (!sellerError && sellerData) {
+            const newBalance = (sellerData.wallet_balance || 0) + transactionAmount;
+            await supabase
+                .from('users')
+                .update({ wallet_balance: newBalance })
+                .eq('id', simData.seller_id);
+        }
+    }
+    
     // If this is an auction sim card, create auction details
     if (simData.type === 'auction') {
         const auctionDetails = {
             sim_card_id: simCardId,
-            current_bid: simData.price || 0,
+            current_bid: simData.price || 0, // Use the price set by the seller as the starting bid
             highest_bidder_id: null,
             end_time: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // 7 days from now
         };
