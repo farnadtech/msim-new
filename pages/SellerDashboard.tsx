@@ -393,8 +393,7 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
         let simDataToSend: Omit<SimCard, 'id' | 'seller_id' | 'status'>;
         
         if (saleType === 'auction') {
-            // For auction type, we don't include auction_details in the main sim card data
-            // It will be handled separately in the addSimCard function
+            // For auction type, we include auction_details with the end_time from the form
             simDataToSend = {
                 number: simData.number,
                 price: parseInt(simData.startingBid, 10) || 0, // Use starting bid as the price for auction
@@ -402,7 +401,12 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
                 carrier: simData.carrier as 'همراه اول' | 'ایرانسل' | 'رایتل',
                 is_rond: simData.is_rond,
                 inquiry_phone_number: undefined,
-                // auction_details is not included here as it's stored in a separate table
+                auction_details: {
+                    end_time: new Date(simData.endTime).toISOString(),
+                    current_bid: parseInt(simData.startingBid, 10) || 0,
+                    highest_bidder_id: null,
+                    bids: []
+                }
             };
         } else {
             // For other types

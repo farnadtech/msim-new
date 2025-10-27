@@ -284,11 +284,17 @@ export const addSimCard = async (simData: Omit<SimCard, 'id'>): Promise<string> 
             
             // If this is an auction sim card, create auction details
             if (simData.type === 'auction') {
+                // Use the end_time from simData if available, otherwise default to 7 days from now
+                let endTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days from now
+                if (simData.auction_details && simData.auction_details.end_time) {
+                    endTime = simData.auction_details.end_time;
+                }
+                
                 const auctionDetails = {
                     sim_card_id: simCardId,
                     current_bid: simData.price || 0, // Use the price set by the seller as the starting bid
                     highest_bidder_id: null,
-                    end_time: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // 7 days from now
+                    end_time: endTime
                 };
                 
                 const { error: auctionDetailsError } = await supabase
@@ -362,11 +368,17 @@ export const addSimCard = async (simData: Omit<SimCard, 'id'>): Promise<string> 
     
     // If this is an auction sim card, create auction details
     if (simData.type === 'auction') {
+        // Use the end_time from simData if available, otherwise default to 7 days from now
+        let endTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days from now
+        if (simData.auction_details && simData.auction_details.end_time) {
+            endTime = simData.auction_details.end_time;
+        }
+        
         const auctionDetails = {
             sim_card_id: simCardId,
             current_bid: simData.price || 0, // Use the price set by the seller as the starting bid
             highest_bidder_id: null,
-            end_time: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // 7 days from now
+            end_time: endTime
         };
         
         const { error: auctionDetailsError } = await supabase
@@ -692,13 +704,31 @@ export const placeBid = async (simId: number, bidderId: string, amount: number):
 };
 
 export const updateSimCard = async (simId: number, updatedData: Partial<SimCard>): Promise<void> => {
-    const { error } = await supabase
-        .from('sim_cards')
-        .update(updatedData)
-        .eq('id', simId);
-        
-    if (error) {
-        throw new Error(error.message);
+    // Separate auction details from other data
+    const { auction_details, ...otherData } = updatedData;
+    
+    // Update main sim card data if there's anything other than auction_details
+    if (Object.keys(otherData).length > 0) {
+        const { error: simError } = await supabase
+            .from('sim_cards')
+            .update(otherData)
+            .eq('id', simId);
+            
+        if (simError) {
+            throw new Error(simError.message);
+        }
+    }
+    
+    // Update auction details if provided
+    if (auction_details) {
+        const { error: auctionError } = await supabase
+            .from('auction_details')
+            .update(auction_details)
+            .eq('sim_card_id', simId);
+            
+        if (auctionError) {
+            throw new Error(auctionError.message);
+        }
     }
 };
 
