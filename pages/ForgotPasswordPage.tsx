@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useNotification } from '../contexts/NotificationContext';
-import { requestPasswordReset } from '../services/api';
+import { requestPasswordReset } from '../services/api-supabase';
 
 const ForgotPasswordPage: React.FC = () => {
   const [email, setEmail] = useState('');

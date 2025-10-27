@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { login } from '../services/api';
+import { login } from '../services/api-supabase';
 import { useNotification } from '../contexts/NotificationContext';
 
 const LoginPage: React.FC = () => {

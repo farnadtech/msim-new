@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { signup, createUserProfile } from '../services/api';
+import { signup, createUserProfile } from '../services/api-supabase';
 import { useNotification } from '../contexts/NotificationContext';
 import { UserRole } from '../types';
 
@@ -38,13 +38,13 @@ const SignupPage: React.FC = () => {
     setIsLoading(true);
     try {
         const userCredential = await signup(formData.email, formData.password);
-        await createUserProfile(userCredential.user.uid, {
+        await createUserProfile(userCredential.user.id, {
             name: formData.name,
             email: formData.email,
             role: formData.role,
             wallet_balance: 0,
             blocked_balance: 0,
-            package_id: ''
+            package_id: null
         });
         showNotification('ثبت نام شما با موفقیت تکمیل شد. در حال انتقال...', 'success');
     } catch (err) {
