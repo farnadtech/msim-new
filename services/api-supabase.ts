@@ -110,28 +110,169 @@ export const updateUserPackage = async (userId: string, packageId: number): Prom
 // --- SIM Card Management ---
 
 export const getSimCards = async (): Promise<SimCard[]> => {
-    const { data, error } = await supabase
+    // First, get all sim cards
+    const { data: simCards, error: simError } = await supabase
         .from('sim_cards')
         .select('*');
         
-    if (error) {
-        throw new Error(error.message);
+    if (simError) {
+        throw new Error(simError.message);
     }
     
-    return data as SimCard[];
+    // Get auction details for auction sim cards
+    const auctionSimIds = simCards
+        .filter(sim => sim.type === 'auction')
+        .map(sim => sim.id);
+        
+    if (auctionSimIds.length > 0) {
+        const { data: auctionDetails, error: auctionError } = await supabase
+            .from('auction_details')
+            .select('*')
+            .in('sim_card_id', auctionSimIds);
+            
+        if (auctionError) {
+            // If there's an error fetching auction details, we'll still return the sim cards
+            // but without auction details
+            console.warn('Error fetching auction details:', auctionError.message);
+            return simCards as SimCard[];
+        }
+        
+        // Merge auction details with sim cards
+        return simCards.map(sim => {
+            if (sim.type === 'auction') {
+                const details = auctionDetails.find(detail => detail.sim_card_id === sim.id);
+                if (details) {
+                    return {
+                        ...sim,
+                        auction_details: {
+                            current_bid: details.current_bid,
+                            highest_bidder_id: details.highest_bidder_id,
+                            end_time: details.end_time,
+                            bids: [] // We'll need to fetch bids separately if needed
+                        }
+                    };
+                } else {
+                    // If no auction details found, create default ones
+                    console.warn(`No auction details found for sim card ${sim.id}, creating defaults`);
+                    return {
+                        ...sim,
+                        auction_details: {
+                            current_bid: sim.price || 0,
+                            highest_bidder_id: null,
+                            end_time: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+                            bids: []
+                        }
+                    };
+                }
+            }
+            return sim;
+        }) as SimCard[];
+    }
+    
+    return simCards as SimCard[];
 };
 
 export const addSimCard = async (simData: Omit<SimCard, 'id'>): Promise<string> => {
-    const { data, error } = await supabase
+    // Prepare sim card data without ID (let DB auto-generate)
+    const simCardPayload = {
+        number: simData.number,
+        price: simData.price,
+        seller_id: simData.seller_id,
+        type: simData.type,
+        status: simData.status,
+        sold_date: simData.sold_date,
+        carrier: simData.carrier,
+        is_rond: simData.is_rond,
+        inquiry_phone_number: simData.inquiry_phone_number
+    };
+
+    // Insert the sim card
+    const { data: simCardData, error: simCardError } = await supabase
         .from('sim_cards')
-        .insert(simData)
+        .insert(simCardPayload)
         .select();
         
-    if (error) {
-        throw new Error(error.message);
+    if (simCardError) {
+        // If we get a duplicate key error, it might be because of sequence issues
+        // Let's try to insert without specifying any ID-related fields
+        if (simCardError.message.includes('duplicate key value violates unique constraint')) {
+            // Try again with minimal data
+            const minimalPayload = {
+                number: simData.number,
+                price: simData.price,
+                seller_id: simData.seller_id,
+                type: simData.type,
+                status: 'available', // Always default to available
+                carrier: simData.carrier,
+                is_rond: simData.is_rond
+            };
+            
+            const { data: retryData, error: retryError } = await supabase
+                .from('sim_cards')
+                .insert(minimalPayload)
+                .select();
+                
+            if (retryError) {
+                throw new Error(retryError.message);
+            }
+            
+            const simCardId = retryData[0].id;
+            
+            // If this is an auction sim card, create auction details
+            if (simData.type === 'auction') {
+                const auctionDetails = {
+                    sim_card_id: simCardId,
+                    current_bid: simData.price || 0,
+                    highest_bidder_id: null,
+                    end_time: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // 7 days from now
+                };
+                
+                const { error: auctionDetailsError } = await supabase
+                    .from('auction_details')
+                    .insert(auctionDetails);
+                    
+                if (auctionDetailsError) {
+                    // If auction details creation fails, we should delete the sim card
+                    await supabase
+                        .from('sim_cards')
+                        .delete()
+                        .eq('id', simCardId);
+                    throw new Error(auctionDetailsError.message);
+                }
+            }
+            
+            return simCardId.toString();
+        }
+        
+        throw new Error(simCardError.message);
     }
     
-    return data[0].id;
+    const simCardId = simCardData[0].id;
+    
+    // If this is an auction sim card, create auction details
+    if (simData.type === 'auction') {
+        const auctionDetails = {
+            sim_card_id: simCardId,
+            current_bid: simData.price || 0,
+            highest_bidder_id: null,
+            end_time: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // 7 days from now
+        };
+        
+        const { error: auctionDetailsError } = await supabase
+            .from('auction_details')
+            .insert(auctionDetails);
+            
+        if (auctionDetailsError) {
+            // If auction details creation fails, we should delete the sim card
+            await supabase
+                .from('sim_cards')
+                .delete()
+                .eq('id', simCardId);
+            throw new Error(auctionDetailsError.message);
+        }
+    }
+    
+    return simCardId.toString();
 };
 
 export const purchaseSim = async (simId: number, buyerId: string): Promise<void> => {
@@ -154,9 +295,34 @@ export const purchaseSim = async (simId: number, buyerId: string): Promise<void>
         throw new Error('This SIM card has already been sold.');
     }
     
-    const price = simData.type === 'auction' && simData.auction_details ? simData.auction_details.current_bid : simData.price;
+    // Get auction details if this is an auction sim card
+    let auctionDetails = null;
+    if (simData.type === 'auction') {
+        const { data: auctionData, error: auctionError } = await supabase
+            .from('auction_details')
+            .select('*')
+            .eq('sim_card_id', simId)
+            .single();
+            
+        if (auctionError && auctionError.code !== 'PGRST116') { // PGRST116 means no rows returned
+            throw new Error('Error fetching auction details: ' + auctionError.message);
+        }
+        
+        // If no auction details found, create default ones
+        if (!auctionData) {
+            auctionDetails = {
+                current_bid: simData.price || 0,
+                highest_bidder_id: null,
+                end_time: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+            };
+        } else {
+            auctionDetails = auctionData;
+        }
+    }
     
-    if (simData.type === 'auction' && simData.auction_details?.highest_bidder_id !== buyerId) {
+    const price = simData.type === 'auction' && auctionDetails ? auctionDetails.current_bid : simData.price;
+    
+    if (simData.type === 'auction' && auctionDetails?.highest_bidder_id !== buyerId) {
         throw new Error('Only the highest bidder can purchase this auctioned SIM.');
     }
     
@@ -253,31 +419,39 @@ export const purchaseSim = async (simId: number, buyerId: string): Promise<void>
     }
     
     // Handle auction refunds if needed
-    if (simData.type === 'auction' && simData.auction_details && simData.auction_details.bids.length > 0) {
-        const otherBidders = simData.auction_details.bids.filter(b => b.user_id !== buyerId);
-        
-        for (const bid of otherBidders) {
-            // Get bidder data
-            const { data: bidderData, error: bidderError } = await supabase
-                .from('users')
-                .select('*')
-                .eq('id', bid.user_id)
-                .single();
-                
-            if (!bidderError && bidderData) {
-                const newWalletBalance = (bidderData.wallet_balance || 0) + bid.amount;
-                const newBlockedBalance = (bidderData.blocked_balance || 0) - bid.amount;
-                
-                const { error: bidderUpdateError } = await supabase
+    if (simData.type === 'auction' && auctionDetails) {
+        // Get bids for this auction
+        const { data: bidsData, error: bidsError } = await supabase
+            .from('bids')
+            .select('*')
+            .eq('sim_card_id', simId);
+            
+        if (!bidsError && bidsData && bidsData.length > 0) {
+            const otherBidders = bidsData.filter(b => b.user_id !== buyerId);
+            
+            for (const bid of otherBidders) {
+                // Get bidder data
+                const { data: bidderData, error: bidderError } = await supabase
                     .from('users')
-                    .update({ 
-                        wallet_balance: newWalletBalance,
-                        blocked_balance: newBlockedBalance
-                    })
-                    .eq('id', bid.user_id);
+                    .select('*')
+                    .eq('id', bid.user_id)
+                    .single();
                     
-                if (bidderUpdateError) {
-                    console.error('Error updating bidder balance:', bidderUpdateError.message);
+                if (!bidderError && bidderData) {
+                    const newWalletBalance = (bidderData.wallet_balance || 0) + bid.amount;
+                    const newBlockedBalance = (bidderData.blocked_balance || 0) - bid.amount;
+                    
+                    const { error: bidderUpdateError } = await supabase
+                        .from('users')
+                        .update({ 
+                            wallet_balance: newWalletBalance,
+                            blocked_balance: newBlockedBalance
+                        })
+                        .eq('id', bid.user_id);
+                        
+                    if (bidderUpdateError) {
+                        console.error('Error updating bidder balance:', bidderUpdateError.message);
+                    }
                 }
             }
         }
@@ -300,16 +474,27 @@ export const placeBid = async (simId: number, bidderId: string, amount: number):
         throw new Error('SIM card not found.');
     }
     
-    if (simData.type !== 'auction' || !simData.auction_details) {
+    if (simData.type !== 'auction') {
         throw new Error('Auction not found.');
     }
     
-    if (new Date(simData.auction_details.end_time) < new Date()) {
+    // Get auction details
+    const { data: auctionDetails, error: auctionError } = await supabase
+        .from('auction_details')
+        .select('*')
+        .eq('sim_card_id', simId)
+        .single();
+        
+    if (auctionError) {
+        throw new Error('Auction details not found.');
+    }
+    
+    if (new Date(auctionDetails.end_time) < new Date()) {
         throw new Error('این حراجی به پایان رسیده است.');
     }
     
-    if (amount <= simData.auction_details.current_bid) {
-        throw new Error(`پیشنهاد شما باید بیشتر از ${simData.auction_details.current_bid.toLocaleString('fa-IR')} تومان باشد.`);
+    if (amount <= auctionDetails.current_bid) {
+        throw new Error(`پیشنهاد شما باید بیشتر از ${auctionDetails.current_bid.toLocaleString('fa-IR')} تومان باشد.`);
     }
     
     // Get bidder data
@@ -328,7 +513,7 @@ export const placeBid = async (simId: number, bidderId: string, amount: number):
     }
     
     // Unblock previous highest bidder's funds
-    const previousHighestBidderId = simData.auction_details.highest_bidder_id;
+    const previousHighestBidderId = auctionDetails.highest_bidder_id;
     if (previousHighestBidderId && previousHighestBidderId !== bidderId) {
         const { data: prevBidderData, error: prevBidderError } = await supabase
             .from('users')
@@ -337,7 +522,7 @@ export const placeBid = async (simId: number, bidderId: string, amount: number):
             .single();
             
         if (!prevBidderError && prevBidderData) {
-            const amountToUnblock = simData.auction_details.current_bid;
+            const amountToUnblock = auctionDetails.current_bid;
             const { error: prevBidderUpdateError } = await supabase
                 .from('users')
                 .update({
@@ -365,23 +550,33 @@ export const placeBid = async (simId: number, bidderId: string, amount: number):
         throw new Error(bidderUpdateError.message);
     }
     
-    // Update sim card auction details
-    const newBid: Bid = { user_id: bidderId, amount: amount, date: new Date().toISOString() };
-    const updatedBids = [...simData.auction_details.bids, newBid];
-    const updatedAuctionDetails = {
-        ...simData.auction_details,
-        current_bid: amount,
-        highest_bidder_id: bidderId,
-        bids: updatedBids,
+    // Add new bid to bids table
+    const newBid = {
+        sim_card_id: simId,
+        user_id: bidderId,
+        amount: amount,
+        date: new Date().toISOString()
     };
     
-    const { error: simUpdateError } = await supabase
-        .from('sim_cards')
-        .update({ auction_details: updatedAuctionDetails })
-        .eq('id', simId);
+    const { error: bidInsertError } = await supabase
+        .from('bids')
+        .insert(newBid);
         
-    if (simUpdateError) {
-        throw new Error(simUpdateError.message);
+    if (bidInsertError) {
+        throw new Error(bidInsertError.message);
+    }
+    
+    // Update auction details
+    const { error: auctionUpdateError } = await supabase
+        .from('auction_details')
+        .update({
+            current_bid: amount,
+            highest_bidder_id: bidderId
+        })
+        .eq('sim_card_id', simId);
+        
+    if (auctionUpdateError) {
+        throw new Error(auctionUpdateError.message);
     }
 };
 
@@ -485,6 +680,7 @@ export const processTransaction = async (userId: string, amount: number, type: T
         amount,
         description,
         date: new Date().toISOString()
+        // id will be auto-generated by the database
     };
     
     const { error: transactionError } = await supabase

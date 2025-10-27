@@ -698,6 +698,12 @@ const SellerDashboard: React.FC = () => {
             return true;
         } catch (error) {
              if (error instanceof Error) {
+                // If there's an error, try to reverse the transaction
+                try {
+                    await processTransaction(user.id, pkg.price, 'sale', `برگشت خرید پکیج ${pkg.name} به دلیل خطا`);
+                } catch (reverseError) {
+                    console.error('Error reversing transaction:', reverseError);
+                }
                 showNotification(error.message, 'error');
             } else {
                 showNotification('خطا در خرید پکیج.', 'error');

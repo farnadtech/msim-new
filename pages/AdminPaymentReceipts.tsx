@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useData } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
-import { getPendingPaymentReceipts, processPaymentReceipt } from '../services/paymentService';
+import { getPendingPaymentReceipts, processPaymentReceipt } from '../services/paymentService-supabase';
 import { PaymentReceipt } from '../types';
 
 const AdminPaymentReceipts: React.FC = () => {
