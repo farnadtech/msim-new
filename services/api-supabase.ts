@@ -125,6 +125,7 @@ export const getSimCards = async (): Promise<SimCard[]> => {
         .map(sim => sim.id);
         
     if (auctionSimIds.length > 0) {
+        // Get auction details
         const { data: auctionDetails, error: auctionError } = await supabase
             .from('auction_details')
             .select('*')
@@ -137,18 +138,34 @@ export const getSimCards = async (): Promise<SimCard[]> => {
             return simCards as SimCard[];
         }
         
-        // Merge auction details with sim cards
+        // Get bids for auction sim cards
+        const { data: bidsData, error: bidsError } = await supabase
+            .from('bids')
+            .select('*')
+            .in('sim_card_id', auctionSimIds);
+            
+        if (bidsError) {
+            // If there's an error fetching bids, we'll still return the sim cards
+            // but without bids data
+            console.warn('Error fetching bids:', bidsError.message);
+            // Continue with auction details only
+        }
+        
+        // Merge auction details and bids with sim cards
         return simCards.map(sim => {
             if (sim.type === 'auction') {
                 const details = auctionDetails.find(detail => detail.sim_card_id === sim.id);
                 if (details) {
+                    // Filter bids for this specific sim card
+                    const simBids = bidsData ? bidsData.filter(bid => bid.sim_card_id === sim.id) : [];
+                    
                     return {
                         ...sim,
                         auction_details: {
                             current_bid: details.current_bid,
                             highest_bidder_id: details.highest_bidder_id,
                             end_time: details.end_time,
-                            bids: [] // We'll need to fetch bids separately if needed
+                            bids: simBids
                         }
                     };
                 } else {
@@ -218,7 +235,7 @@ export const addSimCard = async (simData: Omit<SimCard, 'id'>): Promise<string> 
             
             const simCardId = retryData[0].id;
             
-            // Handle financial transactions for the seller
+            // Handle financial transactions for the seller (only for rond SIM cards)
             let transactionAmount = 0;
             let transactionDescription = '';
             
@@ -226,52 +243,42 @@ export const addSimCard = async (simData: Omit<SimCard, 'id'>): Promise<string> 
             if (simData.is_rond) {
                 transactionAmount -= 5000;
                 transactionDescription = `هزینه ثبت سیمکارت رند ${simData.number}`;
-            }
-            
-            // If this is an auction sim card, charge additional fee
-            if (simData.type === 'auction') {
-                // For auction cards, we charge 5000 tomans regardless of being rond or not
-                transactionAmount -= 5000;
-                if (transactionDescription) {
-                    transactionDescription += ' و ';
-                }
-                transactionDescription += `هزینه ثبت سیمکارت حراجی ${simData.number}`;
-            }
-            
-            // Process the transaction if there's a charge
-            if (transactionAmount < 0) {
-                const { error: transactionError } = await supabase
-                    .from('transactions')
-                    .insert({
-                        user_id: simData.seller_id,
-                        type: 'withdrawal',
-                        amount: transactionAmount,
-                        description: transactionDescription,
-                        date: new Date().toISOString()
-                    });
-                    
-                if (transactionError) {
-                    // If transaction fails, we should delete the sim card
-                    await supabase
-                        .from('sim_cards')
-                        .delete()
-                        .eq('id', simCardId);
-                    throw new Error('خطا در پردازش هزینه ثبت سیمکارت: ' + transactionError.message);
-                }
                 
-                // Update seller's wallet balance
-                const { data: sellerData, error: sellerError } = await supabase
-                    .from('users')
-                    .select('wallet_balance')
-                    .eq('id', simData.seller_id)
-                    .single();
+                // Process the transaction if there's a charge
+                if (transactionAmount < 0) {
+                    const { error: transactionError } = await supabase
+                        .from('transactions')
+                        .insert({
+                            user_id: simData.seller_id,
+                            type: 'withdrawal',
+                            amount: transactionAmount,
+                            description: transactionDescription,
+                            date: new Date().toISOString()
+                        });
+                        
+                    if (transactionError) {
+                        // If transaction fails, we should delete the sim card
+                        await supabase
+                            .from('sim_cards')
+                            .delete()
+                            .eq('id', simCardId);
+                        throw new Error('خطا در پردازش هزینه ثبت سیمکارت: ' + transactionError.message);
+                    }
                     
-                if (!sellerError && sellerData) {
-                    const newBalance = (sellerData.wallet_balance || 0) + transactionAmount;
-                    await supabase
+                    // Update seller's wallet balance
+                    const { data: sellerData, error: sellerError } = await supabase
                         .from('users')
-                        .update({ wallet_balance: newBalance })
-                        .eq('id', simData.seller_id);
+                        .select('wallet_balance')
+                        .eq('id', simData.seller_id)
+                        .single();
+                        
+                    if (!sellerError && sellerData) {
+                        const newBalance = (sellerData.wallet_balance || 0) + transactionAmount;
+                        await supabase
+                            .from('users')
+                            .update({ wallet_balance: newBalance })
+                            .eq('id', simData.seller_id);
+                    }
                 }
             }
             
@@ -306,7 +313,7 @@ export const addSimCard = async (simData: Omit<SimCard, 'id'>): Promise<string> 
     
     const simCardId = simCardData[0].id;
     
-    // Handle financial transactions for the seller
+    // Handle financial transactions for the seller (only for rond SIM cards)
     let transactionAmount = 0;
     let transactionDescription = '';
     
@@ -314,52 +321,42 @@ export const addSimCard = async (simData: Omit<SimCard, 'id'>): Promise<string> 
     if (simData.is_rond) {
         transactionAmount -= 5000;
         transactionDescription = `هزینه ثبت سیمکارت رند ${simData.number}`;
-    }
-    
-    // If this is an auction sim card, charge additional fee
-    if (simData.type === 'auction') {
-        // For auction cards, we charge 5000 tomans regardless of being rond or not
-        transactionAmount -= 5000;
-        if (transactionDescription) {
-            transactionDescription += ' و ';
-        }
-        transactionDescription += `هزینه ثبت سیمکارت حراجی ${simData.number}`;
-    }
-    
-    // Process the transaction if there's a charge
-    if (transactionAmount < 0) {
-        const { error: transactionError } = await supabase
-            .from('transactions')
-            .insert({
-                user_id: simData.seller_id,
-                type: 'withdrawal',
-                amount: transactionAmount,
-                description: transactionDescription,
-                date: new Date().toISOString()
-            });
-            
-        if (transactionError) {
-            // If transaction fails, we should delete the sim card
-            await supabase
-                .from('sim_cards')
-                .delete()
-                .eq('id', simCardId);
-            throw new Error('خطا در پردازش هزینه ثبت سیمکارت: ' + transactionError.message);
-        }
         
-        // Update seller's wallet balance
-        const { data: sellerData, error: sellerError } = await supabase
-            .from('users')
-            .select('wallet_balance')
-            .eq('id', simData.seller_id)
-            .single();
+        // Process the transaction if there's a charge
+        if (transactionAmount < 0) {
+            const { error: transactionError } = await supabase
+                .from('transactions')
+                .insert({
+                    user_id: simData.seller_id,
+                    type: 'withdrawal',
+                    amount: transactionAmount,
+                    description: transactionDescription,
+                    date: new Date().toISOString()
+                });
+                
+            if (transactionError) {
+                // If transaction fails, we should delete the sim card
+                await supabase
+                    .from('sim_cards')
+                    .delete()
+                    .eq('id', simCardId);
+                throw new Error('خطا در پردازش هزینه ثبت سیمکارت: ' + transactionError.message);
+            }
             
-        if (!sellerError && sellerData) {
-            const newBalance = (sellerData.wallet_balance || 0) + transactionAmount;
-            await supabase
+            // Update seller's wallet balance
+            const { data: sellerData, error: sellerError } = await supabase
                 .from('users')
-                .update({ wallet_balance: newBalance })
-                .eq('id', simData.seller_id);
+                .select('wallet_balance')
+                .eq('id', simData.seller_id)
+                .single();
+                
+            if (!sellerError && sellerData) {
+                const newBalance = (sellerData.wallet_balance || 0) + transactionAmount;
+                await supabase
+                    .from('users')
+                    .update({ wallet_balance: newBalance })
+                    .eq('id', simData.seller_id);
+            }
         }
     }
     

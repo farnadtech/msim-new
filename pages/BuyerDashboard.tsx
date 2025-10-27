@@ -112,10 +112,10 @@ const MyBids = () => {
     const { simCards, users, loading } = useData();
     if (!user) return null;
 
+    // Find all auction SIM cards where the user has placed a bid
     const myBidAuctions = simCards.filter(s => 
         s.type === 'auction' && 
         s.auction_details &&
-        new Date(s.auction_details.end_time) > new Date() &&
         s.auction_details.bids.some(b => b.user_id === user.id)
     );
 
@@ -129,6 +129,7 @@ const MyBids = () => {
                     {myBidAuctions.map(sim => {
                         if (!sim.auction_details) return null;
                         const isHighestBidder = sim.auction_details.highest_bidder_id === user.id;
+                        // Find the user's last bid
                         const myLastBid = sim.auction_details.bids.slice().reverse().find(b => b.user_id === user.id);
                         const highestBidder = users.find(u => u.id === sim.auction_details?.highest_bidder_id);
 

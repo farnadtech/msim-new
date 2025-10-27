@@ -389,20 +389,33 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
         
         setIsLoading(true);
         
-        const simDataToSend: Omit<SimCard, 'id' | 'seller_id' | 'status'> = {
-            number: simData.number,
-            price: saleType === 'fixed' ? parseInt(simData.price, 10) || 0 : 0,
-            type: saleType,
-            carrier: simData.carrier as 'همراه اول' | 'ایرانسل' | 'رایتل',
-            is_rond: simData.is_rond,
-            inquiry_phone_number: saleType === 'inquiry' ? simData.inquiry_phone_number : undefined,
-            // FIX: Initialize `bids` as an empty array for new auctions to match the SimCard type.
-            auction_details: saleType === 'auction' ? {
-                end_time: new Date(simData.endTime).toISOString(),
-                current_bid: parseInt(simData.startingBid, 10) || 0,
-                bids: [],
-            } : undefined
-        };
+        // Prepare the data to send
+        let simDataToSend: Omit<SimCard, 'id' | 'seller_id' | 'status'>;
+        
+        if (saleType === 'auction') {
+            // For auction type, we don't include auction_details in the main sim card data
+            // It will be handled separately in the addSimCard function
+            simDataToSend = {
+                number: simData.number,
+                price: parseInt(simData.startingBid, 10) || 0, // Use starting bid as the price for auction
+                type: saleType,
+                carrier: simData.carrier as 'همراه اول' | 'ایرانسل' | 'رایتل',
+                is_rond: simData.is_rond,
+                inquiry_phone_number: undefined,
+                // auction_details is not included here as it's stored in a separate table
+            };
+        } else {
+            // For other types
+            simDataToSend = {
+                number: simData.number,
+                price: saleType === 'fixed' ? parseInt(simData.price, 10) || 0 : 0,
+                type: saleType,
+                carrier: simData.carrier as 'همراه اول' | 'ایرانسل' | 'رایتل',
+                is_rond: simData.is_rond,
+                inquiry_phone_number: saleType === 'inquiry' ? simData.inquiry_phone_number : undefined,
+            };
+        }
+        
         try {
             await onAddSim(simDataToSend);
             // Reset form on success
