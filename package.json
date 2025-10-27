@@ -1,0 +1,30 @@
+{
+  "name": "msim724",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "seed": "tsx seed.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.76.1",
+    "firebase": "^12.4.0",
+    "firebase-admin": "^13.5.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^6.24.1",
+    "tsx": "^4.20.6"
+  },
+  "devDependencies": {
+    "@types/node": "^24.9.1",
+    "@vitejs/plugin-react": "^5.1.0",
+    "firebase-tools": "^14.22.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.12"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "msim724-supabase-migration",
+  "version": "1.0.0",
+  "description": "Scripts for migrating Msim724 from Firebase to Supabase",
+  "main": "migrate-data.js",
+  "type": "module",
+  "scripts": {
+    "export-firebase": "node export-firebase-data.js",
+    "migrate": "node migrate-data.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.76.1",
+    "firebase": "^9.0.0"
+  },
+  "keywords": [
+    "firebase",
+    "supabase",
+    "migration"
+  ],
+  "author": "Msim724 Team",
+  "license": "MIT"
+}

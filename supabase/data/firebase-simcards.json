@@ -1,0 +1,128 @@
+[
+  {
+    "id": 1,
+    "number": "09121234567",
+    "price": 50000000,
+    "seller_id": "00000000-0000-0000-0000-000000000001",
+    "type": "fixed",
+    "status": "available",
+    "carrier": "همراه اول",
+    "is_rond": true
+  },
+  {
+    "id": 2,
+    "number": "09122223333",
+    "price": 0,
+    "seller_id": "00000000-0000-0000-0000-000000000002",
+    "type": "auction",
+    "status": "available",
+    "carrier": "همراه اول",
+    "is_rond": true,
+    "auction_details": {
+      "end_time": "2025-10-29T08:46:13.601Z",
+      "current_bid": 780000,
+      "highest_bidder_id": "00000000-0000-0000-0000-000000000005",
+      "bids": [
+        {
+          "user_id": "00000000-0000-0000-0000-000000000005",
+          "amount": 780000,
+          "date": "2025-10-27T07:46:13.603Z"
+        }
+      ]
+    }
+  },
+  {
+    "id": 3,
+    "number": "09351112222",
+    "price": 2500000,
+    "seller_id": "00000000-0000-0000-0000-000000000004",
+    "type": "fixed",
+    "status": "available",
+    "carrier": "ایرانسل",
+    "is_rond": false
+  },
+  {
+    "id": 4,
+    "number": "09128888888",
+    "price": 0,
+    "seller_id": "00000000-0000-0000-0000-000000000001",
+    "type": "auction",
+    "status": "available",
+    "carrier": "همراه اول",
+    "is_rond": true,
+    "auction_details": {
+      "end_time": "2025-11-01T08:46:13.603Z",
+      "current_bid": 2500000,
+      "highest_bidder_id": null,
+      "bids": []
+    }
+  },
+  {
+    "id": 5,
+    "number": "09215006000",
+    "price": 1200000,
+    "seller_id": "00000000-0000-0000-0000-000000000004",
+    "type": "fixed",
+    "status": "sold",
+    "carrier": "رایتل",
+    "is_rond": false
+  },
+  {
+    "id": 6,
+    "number": "09031002030",
+    "price": 800000,
+    "seller_id": "00000000-0000-0000-0000-000000000002",
+    "type": "fixed",
+    "status": "available",
+    "carrier": "ایرانسل",
+    "is_rond": false
+  },
+  {
+    "id": 7,
+    "number": "09123456789",
+    "price": 30000000,
+    "seller_id": "00000000-0000-0000-0000-000000000001",
+    "type": "fixed",
+    "status": "available",
+    "carrier": "همراه اول",
+    "is_rond": false
+  },
+  {
+    "id": 8,
+    "number": "09127770077",
+    "price": 0,
+    "seller_id": "00000000-0000-0000-0000-000000000004",
+    "type": "auction",
+    "status": "available",
+    "carrier": "همراه اول",
+    "is_rond": true,
+    "auction_details": {
+      "end_time": "2025-10-28T08:46:13.603Z",
+      "current_bid": 925000,
+      "highest_bidder_id": "00000000-0000-0000-0000-000000000005",
+      "bids": [
+        {
+          "user_id": "00000000-0000-0000-0000-000000000003",
+          "amount": 900000,
+          "date": "2025-10-27T06:46:13.603Z"
+        },
+        {
+          "user_id": "00000000-0000-0000-0000-000000000005",
+          "amount": 925000,
+          "date": "2025-10-27T07:46:13.603Z"
+        }
+      ]
+    }
+  },
+  {
+    "id": 9,
+    "number": "09361002030",
+    "price": 0,
+    "seller_id": "00000000-0000-0000-0000-000000000002",
+    "type": "inquiry",
+    "status": "available",
+    "carrier": "ایرانسل",
+    "is_rond": false,
+    "inquiry_phone_number": "09021234567"
+  }
+]

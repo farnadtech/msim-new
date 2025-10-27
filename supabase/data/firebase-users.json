@@ -1,0 +1,44 @@
+[
+  {
+    "id": "00000000-0000-0000-0000-000000000001",
+    "name": "مدیر کل",
+    "role": "admin",
+    "email": "admin@msim724.com",
+    "wallet_balance": 10000000,
+    "blocked_balance": 0
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000002",
+    "name": "علی رضایی",
+    "role": "seller",
+    "email": "ali@example.com",
+    "wallet_balance": 500000,
+    "package_id": 2,
+    "blocked_balance": 0
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000003",
+    "name": "سارا محمدی",
+    "role": "buyer",
+    "email": "sara@example.com",
+    "wallet_balance": 3000000,
+    "blocked_balance": 0
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000004",
+    "name": "رضا حسینی",
+    "role": "seller",
+    "email": "reza@example.com",
+    "wallet_balance": 1200000,
+    "package_id": 3,
+    "blocked_balance": 0
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000005",
+    "name": "فاطمه احمدی",
+    "role": "buyer",
+    "email": "fatemeh@example.com",
+    "wallet_balance": 3295000,
+    "blocked_balance": 1705000
+  }
+]

@@ -1,0 +1,5 @@
+{
+  "name": "Msim724 - SIM Card Marketplace",
+  "description": "A comprehensive marketplace for buying and selling SIM cards. It features distinct panels for admins, sellers, and buyers, a wallet system, and options for both fixed-price and auction sales.",
+  "requestFramePermissions": []
+}
