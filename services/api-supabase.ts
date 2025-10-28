@@ -169,17 +169,11 @@ export const getSimCards = async (): Promise<SimCard[]> => {
                         }
                     };
                 } else {
-                    // If no auction details found, create default ones
-                    console.warn(`No auction details found for sim card ${sim.id}, creating defaults`);
-                    return {
-                        ...sim,
-                        auction_details: {
-                            current_bid: sim.price || 0,
-                            highest_bidder_id: null,
-                            end_time: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-                            bids: []
-                        }
-                    };
+                    // If no auction details found, this indicates a data inconsistency
+                    // We should not create default auction details as it causes confusion
+                    console.warn(`No auction details found for sim card ${sim.id}, this indicates a data inconsistency`);
+                    // Return the sim card without auction details to prevent incorrect data display
+                    return sim;
                 }
             }
             return sim;
@@ -284,10 +278,13 @@ export const addSimCard = async (simData: Omit<SimCard, 'id'>): Promise<string> 
             
             // If this is an auction sim card, create auction details
             if (simData.type === 'auction') {
-                // Use the end_time from simData if available, otherwise default to 7 days from now
-                let endTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days from now
+                // Use the end_time from simData if available
+                let endTime;
                 if (simData.auction_details && simData.auction_details.end_time) {
                     endTime = simData.auction_details.end_time;
+                } else {
+                    // If no end time is provided, throw an error instead of defaulting to 7 days
+                    throw new Error('زمان پایان حراجی مشخص نشده است. لطفاً زمان پایان حراجی را مشخص کنید.');
                 }
                 
                 const auctionDetails = {
@@ -368,10 +365,13 @@ export const addSimCard = async (simData: Omit<SimCard, 'id'>): Promise<string> 
     
     // If this is an auction sim card, create auction details
     if (simData.type === 'auction') {
-        // Use the end_time from simData if available, otherwise default to 7 days from now
-        let endTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days from now
+        // Use the end_time from simData if available
+        let endTime;
         if (simData.auction_details && simData.auction_details.end_time) {
             endTime = simData.auction_details.end_time;
+        } else {
+            // If no end time is provided, throw an error instead of defaulting to 7 days
+            throw new Error('زمان پایان حراجی مشخص نشده است. لطفاً زمان پایان حراجی را مشخص کنید.');
         }
         
         const auctionDetails = {
