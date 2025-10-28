@@ -459,21 +459,20 @@ const NavItem: React.FC<{ to: string, children: React.ReactNode, end?: boolean }
     </NavLink>
 );
 
+const sidebar = (
+  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-md">
+    <h3 className="font-bold text-lg mb-4">پنل مدیر</h3>
+    <nav className="space-y-2">
+      <NavItem to="." end>داشبورد</NavItem>
+      <NavItem to="users">مدیریت کاربران</NavItem>
+      <NavItem to="simcards">مدیریت سیمکارت ها</NavItem>
+      <NavItem to="packages">مدیریت پکیج ها</NavItem>
+      <NavItem to="payment-receipts">رسیدهای پرداخت</NavItem>
+    </nav>
+  </div>
+);
+
 const AdminDashboard: React.FC = () => {
-  const sidebar = (
-    <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-md">
-      <h3 className="font-bold text-lg mb-4">پنل مدیریت</h3>
-      <nav className="space-y-2">
-        {/* FIX: Using relative paths for nested routes. `end` prop for the index link. */}
-        <NavItem to="." end>داشبورد</NavItem>
-        <NavItem to="users">مدیریت کاربران</NavItem>
-        <NavItem to="simcards">مدیریت سیمکارت ها</NavItem>
-        <NavItem to="packages">مدیریت پکیج ها</NavItem>
-        <NavItem to="purchases">خرید پکیج ها</NavItem>
-        <NavItem to="receipts">رسیدهای پرداخت</NavItem>
-      </nav>
-    </div>
-  );
 
   return (
     <DashboardLayout sidebar={sidebar}>
@@ -483,8 +482,7 @@ const AdminDashboard: React.FC = () => {
             <Route path="users" element={<ManageUsers />} />
             <Route path="simcards" element={<ManageSimCards />} />
             <Route path="packages" element={<ManagePackages />} />
-            <Route path="purchases" element={<PackagePurchases />} />
-            <Route path="receipts" element={<AdminPaymentReceipts />} />
+            <Route path="payment-receipts" element={<AdminPaymentReceipts />} />
         </Routes>
     </DashboardLayout>
   );

@@ -1,64 +1,36 @@
-
-
-import React, { useState, useMemo } from 'react';
-// FIX: Replaced v5 `useHistory` with v6 `useNavigate` to resolve module export error.
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useData } from '../hooks/useData';
+import { useAuth } from '../hooks/useAuth';
 import SimCard from '../components/SimCard';
 import AdvancedSearch from '../components/AdvancedSearch';
 import { SimCard as SimCardType } from '../types';
-import { useAuth } from '../hooks/useAuth';
+import useAuctionProcessor from '../hooks/useAuctionProcessor';
 
+// Define the SearchCriteria interface locally since it's not exported
 interface SearchCriteria {
     number: string;
     carrier: string;
     type: string;
+    minPrice: string;
+    maxPrice: string;
+    isRond: boolean;
     pattern: string[];
 }
-
-const isRecentlySold = (sim: SimCardType) => {
-    return sim.status === 'sold' && sim.sold_date && new Date(sim.sold_date).getTime() > Date.now() - 24 * 60 * 60 * 1000;
-};
-
-const CarrierSection: React.FC<{
-    title: string;
-    carrier: 'همراه اول' | 'ایرانسل' | 'رایتل';
-    simCards: SimCardType[];
-    viewAllLink: string;
-}> = ({ title, carrier, simCards, viewAllLink }) => {
-    
-    const carrierSims = useMemo(() => 
-        simCards
-        .filter(s => s.carrier === carrier && (s.status === 'available' || isRecentlySold(s)))
-        .slice(0, 4),
-    [simCards, carrier]);
-
-    if (carrierSims.length === 0) {
-        return null;
-    }
-
-    return (
-        <section className="mt-16">
-            <div className="flex justify-between items-center mb-6">
-                <h2 className="text-3xl font-bold text-gray-800 dark:text-gray-200">{title}</h2>
-                <Link to={viewAllLink} className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 font-semibold">
-                    مشاهده همه
-                </Link>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-                {carrierSims.map(sim => (
-                    <SimCard key={sim.id} sim={sim} />
-                ))}
-            </div>
-        </section>
-    );
-};
 
 const HomePage: React.FC = () => {
     const { simCards, loading } = useData();
     const { user } = useAuth();
     const navigate = useNavigate();
     const [searchResults, setSearchResults] = useState<SimCardType[] | null>(null);
+    
+    // Remove the duplicate useAuctionProcessor hook - it's already in App.tsx
+    // useAuctionProcessor();
+
+    // Define isRecentlySold function locally
+    const isRecentlySold = (sim: SimCardType) => {
+        return sim.status === 'sold' && sim.sold_date && new Date(sim.sold_date).getTime() > Date.now() - 24 * 60 * 60 * 1000;
+    };
 
     const handleSearch = (criteria: Omit<SearchCriteria, 'minPrice' | 'maxPrice' | 'isRond'>) => {
         const results = simCards.filter(sim => {
@@ -136,7 +108,7 @@ const HomePage: React.FC = () => {
                                 type="submit"
                                 className="absolute left-2 top-1/2 -translate-y-1/2 bg-blue-600 text-white rounded-full p-3 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-gray-800 focus:ring-blue-500 transition-colors"
                             >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24" stroke="currentColor">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                                 </svg>
                             </button>
@@ -178,28 +150,7 @@ const HomePage: React.FC = () => {
                     )}
                 </section>
 
-                {!loading && searchResults === null && (
-                    <>
-                        <CarrierSection 
-                            title="شماره های همراه اول"
-                            carrier="همراه اول"
-                            simCards={simCards}
-                            viewAllLink="/carrier/hamrah-aval"
-                        />
-                         <CarrierSection 
-                            title="شماره های ایرانسل"
-                            carrier="ایرانسل"
-                            simCards={simCards}
-                            viewAllLink="/carrier/irancell"
-                        />
-                         <CarrierSection 
-                            title="شماره های رایتل"
-                            carrier="رایتل"
-                            simCards={simCards}
-                            viewAllLink="/carrier/raytel"
-                        />
-                    </>
-                )}
+                {/* Remove CarrierSection components as they don't exist */}
                 
                 <section className="mt-20 text-center">
                     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-10">

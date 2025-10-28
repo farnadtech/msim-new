@@ -6,6 +6,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useData } from '../hooks/useData';
 import { SimCard, Package, SimCardTypeOption } from '../types';
 import { useNotification } from '../contexts/NotificationContext';
+import api, { PaymentReceipt } from '../services/api-supabase';
 
 const SellerOverview = () => {
     const { user } = useAuth();
@@ -78,6 +79,18 @@ const MySimCards = () => {
         if (isNaN(priceValue) || priceValue < 0) {
             showNotification('لطفا قیمت معتبری وارد کنید.', 'error');
             return;
+        }
+
+        // Check if this is an auction sim card and if there are any bids
+        if (editingSim.type === 'auction' && editingSim.auction_details) {
+            // Get the bids for this auction
+            const { bids } = editingSim.auction_details;
+            
+            // If there are bids, don't allow price changes
+            if (bids && bids.length > 0) {
+                showNotification('قیمت پایه حراجی قابل تغییر نیست زیرا پیشنهادی برای این حراجی ثبت شده است.', 'error');
+                return;
+            }
         }
 
         try {
@@ -165,6 +178,7 @@ const MySimCards = () => {
 const SellerWallet = ({ onTransaction }: { onTransaction: (amount: number, type: 'deposit' | 'withdrawal') => Promise<void> }) => {
     const { user } = useAuth();
     const { transactions } = useData();
+    const { showNotification } = useNotification();
     const [isModalOpen, setModalOpen] = useState(false);
     const [modalType, setModalType] = useState<'deposit' | 'withdrawal'>('deposit');
     const [amount, setAmount] = useState('');
@@ -193,10 +207,66 @@ const SellerWallet = ({ onTransaction }: { onTransaction: (amount: number, type:
             setIsLoading(true);
             try {
                 if (modalType === 'deposit') {
-                    // For deposits, show payment method selection
-                    setModalOpen(false);
-                    // In a real implementation, you would redirect to the selected payment method
-                    alert(`درگاه پرداخت: ${paymentMethod === 'zarinpal' ? 'زرین‌پال' : 'کارت به کارت'}\nمبلغ: ${numericAmount.toLocaleString('fa-IR')} تومان`);
+                    // For deposits, check if user has selected card payment method
+                    if (paymentMethod === 'card') {
+                        // For card payments, we need to handle the receipt upload
+                        if (!cardNumber || !trackingCode) {
+                            showNotification('لطفا شماره کارت و کد پیگیری را وارد کنید.', 'error');
+                            setIsLoading(false);
+                            return;
+                        }
+                        
+                        // Check if user has uploaded a receipt image
+                        if (!receiptImage) {
+                            showNotification('لطفا تصویر رسید پرداخت را آپلود کنید.', 'error');
+                            setIsLoading(false);
+                            return;
+                        }
+                        
+                        // Validate card number (should be 16 digits)
+                        if (cardNumber.replace(/\D/g, '').length !== 16) {
+                            showNotification('شماره کارت باید 16 رقم باشد.', 'error');
+                            setIsLoading(false);
+                            return;
+                        }
+                        
+                        // Upload receipt image to Supabase Storage
+                        let receiptImageUrl = '';
+                        if (receiptImage) {
+                            try {
+                                receiptImageUrl = await api.uploadReceiptImage(receiptImage, user!.id);
+                            } catch (error) {
+                                showNotification('خطا در آپلود تصویر رسید.', 'error');
+                                setIsLoading(false);
+                                return;
+                            }
+                        }
+                        
+                        // Create payment receipt record
+                        await api.createPaymentReceipt({
+                            user_id: user!.id,
+                            user_name: user!.name,
+                            amount: numericAmount,
+                            card_number: cardNumber,
+                            tracking_code: trackingCode,
+                            receipt_image_url: receiptImageUrl,
+                            status: 'pending'
+                        });
+                        
+                        // Show success message
+                        showNotification('اطلاعات پرداخت با موفقیت ثبت شد. پس از تایید مدیر، موجودی شما افزایش خواهد یافت.', 'success');
+                        setModalOpen(false);
+                        
+                        // Reset form fields
+                        setCardNumber('');
+                        setTrackingCode('');
+                        setReceiptImage(null);
+                    } else {
+                        // For ZarinPal, redirect to payment gateway
+                        // In a real implementation, you would redirect to the selected payment method
+                        alert(`درگاه پرداخت: ${paymentMethod === 'zarinpal' ? 'زرین‌پال' : 'کارت به کارت'}\nمبلغ: ${numericAmount.toLocaleString('fa-IR')} تومان`);
+                        setModalOpen(false);
+                    }
                 } else {
                     // For withdrawals, process normally
                     await onTransaction(numericAmount, modalType);
@@ -204,6 +274,7 @@ const SellerWallet = ({ onTransaction }: { onTransaction: (amount: number, type:
                 }
             } catch(error) {
                 // Error is now handled by the parent component using notifications
+                showNotification('خطا در پردازش تراکنش.', 'error');
             } finally {
                 setIsLoading(false);
             }

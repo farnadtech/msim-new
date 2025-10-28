@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext-supabase';
@@ -6,6 +5,7 @@ import { DataProvider } from './contexts/DataContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { useAuth } from './hooks/useAuth';
 import { ThemeProvider } from './contexts/ThemeContext';
+import useAuctionProcessor from './hooks/useAuctionProcessor';
 
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
@@ -40,6 +40,9 @@ const PrivateRoute: React.FC<{ children: React.ReactElement; roles: string[] }> 
 };
 
 const AppContent: React.FC = () => {
+  // Add the auction processor hook
+  useAuctionProcessor();
+  
   return (
       <HashRouter>
         <div className="flex flex-col min-h-screen">

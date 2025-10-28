@@ -5,6 +5,7 @@ import { useData } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
 import { SimCard as SimCardType, User } from '../types';
 import { useNotification } from '../contexts/NotificationContext';
+import api from '../services/api-supabase';
 
 const CountdownTimer: React.FC<{ endTime: string }> = ({ endTime }) => {
     const calculateTimeLeft = () => {
@@ -59,6 +60,7 @@ const SimDetailsPage: React.FC = () => {
     const [isProcessing, setIsProcessing] = useState(false);
     const [showInquiryNumber, setShowInquiryNumber] = useState(false);
     const [isConfirmModalOpen, setConfirmModalOpen] = useState(false);
+    const [isPurchaseCompleted, setIsPurchaseCompleted] = useState(false);
 
     useEffect(() => {
         if (!loading && id) {
@@ -78,6 +80,56 @@ const SimDetailsPage: React.FC = () => {
         }
     }, [id, simCards, users, loading, navigate]);
 
+    // Auto-complete auction purchase for the winner when auction ends
+    useEffect(() => {
+        const processAuction = async () => {
+            if (sim && sim.type === 'auction' && sim.auction_details && sim.status === 'available') {
+                const isAuctionEnded = new Date(sim.auction_details.end_time) < new Date();
+                const isCurrentUserWinner = currentUser?.id === sim.auction_details.highest_bidder_id;
+                
+                if (isAuctionEnded && isCurrentUserWinner) {
+                    // Check if purchase is already completed
+                    const isCompleted = await api.isAuctionPurchaseCompleted(sim.id, currentUser.id);
+                    setIsPurchaseCompleted(isCompleted);
+                    
+                    if (!isCompleted) {
+                        // Automatically complete the purchase for the winner
+                        if (!currentUser) return;
+                        
+                        setIsProcessing(true);
+                        try {
+                            // Add an additional check to make sure the auction hasn't been processed by another process
+                            const refreshedSim = await api.getSimCards();
+                            const currentSim = refreshedSim.find(s => s.id === sim.id);
+                            
+                            if (currentSim && currentSim.status === 'sold') {
+                                // Auction was already processed, update state
+                                setIsPurchaseCompleted(true);
+                                setSim({...sim, status: 'sold'});
+                                showNotification('حراجی قبلاً تکمیل شده است.', 'info');
+                                return;
+                            }
+                            
+                            await api.completeAuctionPurchaseForWinner(sim.id, currentUser.id);
+                            showNotification('حراجی به پایان رسید و خرید به طور خودکار انجام شد!', 'success');
+                            // Refresh the sim data
+                            const updatedSim = {...sim, status: 'sold'};
+                            setSim(updatedSim);
+                            setIsPurchaseCompleted(true);
+                        } catch (err) {
+                            if (err instanceof Error) showNotification(err.message, 'error');
+                            else showNotification('خطایی در هنگام تکمیل خرید رخ داد.', 'error');
+                        } finally {
+                            setIsProcessing(false);
+                        }
+                    }
+                }
+            }
+        };
+        
+        processAuction();
+    }, [sim, currentUser, showNotification]);
+
     if (loading) {
         return <div className="text-center py-20">در حال بارگذاری...</div>;
     }
@@ -86,6 +138,46 @@ const SimDetailsPage: React.FC = () => {
         return <div className="text-center py-20">سیمکارت یافت نشد.</div>;
     }
 
+    const handlePurchaseClick = () => {
+        if (!currentUser) {
+            navigate('/login');
+            return;
+        }
+        if (!sim) return;
+
+        if (sim.type === 'fixed') {
+            setConfirmModalOpen(true);
+        } else if (sim.type === 'auction') {
+            // This is for the auction winner to complete the purchase
+            executeAuctionPurchase();
+        }
+    };
+    
+    const executeAuctionPurchase = async () => {
+        if (!currentUser || !sim) {
+            navigate('/login');
+            return;
+        }
+        if (sim.seller_id === currentUser.id) {
+            showNotification('شما نمی توانید سیمکارت خود را بخرید.', 'error');
+            return;
+        }
+        setIsProcessing(true);
+        try {
+            await api.completeAuctionPurchaseForWinner(sim.id, currentUser.id);
+            showNotification('خرید با موفقیت انجام شد!', 'success');
+            setIsPurchaseCompleted(true);
+            // Refresh the sim data
+            const updatedSim = {...sim, status: 'sold'};
+            setSim(updatedSim);
+        } catch (err) {
+            if (err instanceof Error) showNotification(err.message, 'error');
+            else showNotification('خطایی در هنگام خرید رخ داد.', 'error');
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+    
     const executePurchase = async () => {
         setConfirmModalOpen(false); // Ensure modal is closed
         if (!currentUser || !sim) {
@@ -111,21 +203,6 @@ const SimDetailsPage: React.FC = () => {
         }
     };
 
-    const handlePurchaseClick = () => {
-        if (!currentUser) {
-            navigate('/login');
-            return;
-        }
-        if (!sim) return;
-
-        if (sim.type === 'fixed') {
-            setConfirmModalOpen(true);
-        } else if (sim.type === 'auction') {
-            // This is for the auction winner to complete the purchase
-            executePurchase();
-        }
-    };
-    
     const handlePlaceBid = async () => {
         if (!currentUser) {
             navigate('/login');
@@ -220,13 +297,13 @@ const SimDetailsPage: React.FC = () => {
                                     </div>
                                 </div>
                             ) : (
-                                currentUser?.id === highestBidder?.id ? (
+                                currentUser?.id === highestBidder?.id && sim.status !== 'sold' && !isPurchaseCompleted ? (
                                     <button onClick={handlePurchaseClick} disabled={isProcessing} className="w-full bg-green-600 text-white font-bold py-3 rounded-lg hover:bg-green-700 disabled:bg-gray-400">
                                         {isProcessing ? 'در حال پردازش...' : 'تکمیل خرید'}
                                     </button>
-                                ): (
+                                ): sim.status !== 'sold' ? (
                                      <p className="text-center font-bold text-lg">این حراجی به پایان رسیده است.</p>
-                                )
+                                ) : null
                             )}
                         </div>
                     ) : sim.type === 'inquiry' ? (

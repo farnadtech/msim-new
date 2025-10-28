@@ -414,39 +414,56 @@ export const purchaseSim = async (simId: number, buyerId: string): Promise<void>
         throw new Error('SIM card not found.');
     }
     
-    if (simData.status === 'sold') {
-        throw new Error('This SIM card has already been sold.');
+    if (simData.status !== 'available') {
+        throw new Error('این سیمکارت دیگر در دسترس نیست.');
     }
     
-    // Get auction details if this is an auction sim card
+    // Get auction details if it's an auction
     let auctionDetails = null;
     if (simData.type === 'auction') {
-        const { data: auctionData, error: auctionError } = await supabase
+        const { data, error: auctionError } = await supabase
             .from('auction_details')
             .select('*')
             .eq('sim_card_id', simId)
             .single();
             
-        if (auctionError && auctionError.code !== 'PGRST116') { // PGRST116 means no rows returned
-            throw new Error('Error fetching auction details: ' + auctionError.message);
+        if (auctionError) {
+            throw new Error('جزئیات حراجی یافت نشد.');
         }
         
-        // If no auction details found, create default ones
-        if (!auctionData) {
-            auctionDetails = {
-                current_bid: simData.price || 0,
-                highest_bidder_id: null,
-                end_time: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-            };
-        } else {
-            auctionDetails = auctionData;
+        auctionDetails = data;
+        
+        // For auctions, check if it has ended
+        if (new Date(auctionDetails.end_time) > new Date()) {
+            throw new Error('حراجی هنوز به پایان نرسیده است.');
+        }
+        
+        // For auctions, check if this user is the highest bidder
+        if (auctionDetails.highest_bidder_id !== buyerId) {
+            throw new Error('شما برنده این حراجی نیستید.');
         }
     }
     
-    const price = simData.type === 'auction' && auctionDetails ? auctionDetails.current_bid : simData.price;
+    // Double-check that this purchase hasn't already been processed by checking for existing transactions
+    if (simData.type === 'auction' && auctionDetails) {
+        const { data: existingTransactions, error: transactionError } = await supabase
+            .from('transactions')
+            .select('*')
+            .like('description', `خرید سیمکارت ${simData.number}`)
+            .eq('type', 'purchase')
+            .eq('user_id', buyerId);
+            
+        if (transactionError) {
+            console.error('Error checking for existing transactions:', transactionError);
+        } else if (existingTransactions && existingTransactions.length > 0) {
+            throw new Error('این حراجی قبلاً تکمیل شده است.');
+        }
+    }
     
-    if (simData.type === 'auction' && auctionDetails?.highest_bidder_id !== buyerId) {
-        throw new Error('Only the highest bidder can purchase this auctioned SIM.');
+    // Determine the price
+    let price = simData.price;
+    if (simData.type === 'auction' && auctionDetails) {
+        price = auctionDetails.current_bid;
     }
     
     // Get buyer data
@@ -461,8 +478,19 @@ export const purchaseSim = async (simId: number, buyerId: string): Promise<void>
     }
     
     const buyerCurrentBalance = buyerData.wallet_balance || 0;
-    if (buyerCurrentBalance < price) {
-        throw new Error('موجودی کیف پول خریدار کافی نیست.');
+    const buyerBlockedBalance = buyerData.blocked_balance || 0;
+    
+    // For auction purchases, we need to unblock the winning bid amount
+    if (simData.type === 'auction' && auctionDetails) {
+        // Check if buyer has enough funds (including blocked funds)
+        if ((buyerCurrentBalance + buyerBlockedBalance) < price) {
+            throw new Error('موجودی کیف پول خریدار کافی نیست.');
+        }
+    } else {
+        // For non-auction purchases
+        if (buyerCurrentBalance < price) {
+            throw new Error('موجودی کیف پول خریدار کافی نیست.');
+        }
     }
     
     // Get seller data
@@ -477,10 +505,26 @@ export const purchaseSim = async (simId: number, buyerId: string): Promise<void>
     }
     
     // Update buyer balance
-    const buyerNewBalance = buyerCurrentBalance - price;
+    let buyerNewBalance = buyerCurrentBalance;
+    let buyerNewBlockedBalance = buyerBlockedBalance;
+    
+    if (simData.type === 'auction' && auctionDetails) {
+        // For auction purchases, only unblock the winning bid amount
+        // The buyer already has the bid amount blocked and also deducted from wallet
+        // So we should only unblock from blocked balance
+        buyerNewBalance = buyerCurrentBalance; // No change to wallet balance
+        buyerNewBlockedBalance = buyerBlockedBalance - price; // Only unblock from blocked balance
+    } else {
+        // For non-auction purchases
+        buyerNewBalance = buyerCurrentBalance - price;
+    }
+    
     const { error: buyerUpdateError } = await supabase
         .from('users')
-        .update({ wallet_balance: buyerNewBalance })
+        .update({ 
+            wallet_balance: buyerNewBalance,
+            blocked_balance: buyerNewBlockedBalance
+        })
         .eq('id', buyerId);
         
     if (buyerUpdateError) {
@@ -721,9 +765,17 @@ export const updateSimCard = async (simId: number, updatedData: Partial<SimCard>
     
     // Update auction details if provided
     if (auction_details) {
+        // Extract only the fields that exist in the auction_details table
+        const { current_bid, highest_bidder_id, end_time } = auction_details;
+        const auctionData = {
+            current_bid,
+            highest_bidder_id,
+            end_time
+        };
+        
         const { error: auctionError } = await supabase
             .from('auction_details')
-            .update(auction_details)
+            .update(auctionData)
             .eq('sim_card_id', simId);
             
         if (auctionError) {
@@ -833,6 +885,415 @@ export const processTransaction = async (userId: string, amount: number, type: T
     }
 };
 
+// Payment receipt types
+export type PaymentReceiptStatus = 'pending' | 'approved' | 'rejected';
+
+export type PaymentReceipt = {
+  id: string;
+  user_id: string;
+  user_name: string;
+  amount: number;
+  card_number?: string;
+  tracking_code?: string;
+  receipt_image_url?: string;
+  status: PaymentReceiptStatus;
+  created_at: string;
+  processed_at?: string;
+  processed_by?: string;
+  updated_at: string;
+};
+
+// Payment receipt functions
+export const createPaymentReceipt = async (
+  receiptData: Omit<PaymentReceipt, 'id' | 'created_at' | 'updated_at'>
+): Promise<string> => {
+  const { data, error } = await supabase
+    .from('payment_receipts')
+    .insert(receiptData)
+    .select('id')
+    .single();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data.id;
+};
+
+export const uploadReceiptImage = async (
+  file: File,
+  userId: string
+): Promise<string> => {
+  const fileExt = file.name.split('.').pop();
+  const fileName = `${userId}/${Date.now()}.${fileExt}`;
+  
+  const { data, error } = await supabase.storage
+    .from('payment-receipts')
+    .upload(fileName, file);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  // Get the public URL for the uploaded file
+  const { data: urlData } = supabase.storage
+    .from('payment-receipts')
+    .getPublicUrl(fileName);
+
+  return urlData.publicUrl;
+};
+
+export const isAuctionPurchaseCompleted = async (simId: number, buyerId: string): Promise<boolean> => {
+  // First, get the SIM card number
+  const { data: simData, error: simError } = await supabase
+    .from('sim_cards')
+    .select('number')
+    .eq('id', simId)
+    .single();
+    
+  if (simError) {
+    console.error('Error fetching SIM card:', simError);
+    return false;
+  }
+  
+  // Check if there's a purchase transaction for this SIM card and buyer
+  const { data, error } = await supabase
+    .from('transactions')
+    .select('*')
+    .eq('user_id', buyerId)
+    .like('description', `خرید سیمکارت ${simData.number}`)
+    .eq('type', 'purchase');
+    
+  if (error) {
+    console.error('Error checking auction purchase status:', error);
+    return false;
+  }
+  
+  return data && data.length > 0;
+};
+
+export const completeAuctionPurchaseForWinner = async (simId: number, buyerId: string): Promise<void> => {
+    // Get the SIM card
+    const { data: simData, error: simError } = await supabase
+        .from('sim_cards')
+        .select('*')
+        .eq('id', simId)
+        .single();
+        
+    if (simError) {
+        throw new Error(simError.message);
+    }
+    
+    if (!simData) {
+        throw new Error('SIM card not found.');
+    }
+    
+    if (simData.status !== 'available') {
+        throw new Error('این سیمکارت دیگر در دسترس نیست.');
+    }
+    
+    if (simData.type !== 'auction') {
+        throw new Error('This SIM card is not an auction.');
+    }
+    
+    // Get auction details
+    const { data: auctionDetails, error: auctionError } = await supabase
+        .from('auction_details')
+        .select('*')
+        .eq('sim_card_id', simId)
+        .single();
+        
+    if (auctionError) {
+        throw new Error('جزئیات حراجی یافت نشد.');
+    }
+    
+    // Check if auction has ended
+    if (new Date(auctionDetails.end_time) > new Date()) {
+        throw new Error('حراجی هنوز به پایان نرسیده است.');
+    }
+    
+    // Check if this user is the highest bidder
+    if (auctionDetails.highest_bidder_id !== buyerId) {
+        throw new Error('شما برنده این حراجی نیستید.');
+    }
+    
+    // Double-check that this auction hasn't already been processed by checking for existing transactions
+    const { data: existingTransactions, error: transactionError } = await supabase
+        .from('transactions')
+        .select('*')
+        .like('description', `خرید سیمکارت ${simData.number}`)
+        .eq('type', 'purchase')
+        .eq('user_id', buyerId);
+        
+    if (transactionError) {
+        console.error('Error checking for existing transactions:', transactionError);
+    } else if (existingTransactions && existingTransactions.length > 0) {
+        throw new Error('این حراجی قبلاً تکمیل شده است.');
+    }
+    
+    // Determine the price (winning bid amount)
+    const price = auctionDetails.current_bid;
+    
+    // Get buyer data
+    const { data: buyerData, error: buyerError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', buyerId)
+        .single();
+        
+    if (buyerError) {
+        throw new Error(`Buyer with ID ${buyerId} not found for transaction.`);
+    }
+    
+    const buyerCurrentBalance = buyerData.wallet_balance || 0;
+    const buyerBlockedBalance = buyerData.blocked_balance || 0;
+    
+    // Check if buyer has enough funds (including blocked funds)
+    if ((buyerCurrentBalance + buyerBlockedBalance) < price) {
+        throw new Error('موجودی کیف پول خریدار کافی نیست.');
+    }
+    
+    // Get seller data
+    const { data: sellerData, error: sellerError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', simData.seller_id)
+        .single();
+        
+    if (sellerError) {
+        throw new Error(`Seller with ID ${simData.seller_id} not found for transaction.`);
+    }
+    
+    // Update buyer balance - only unblock the winning bid amount
+    // The buyer already has the bid amount blocked, so we just need to adjust the balances
+    // We should only unblock the amount from blocked balance, not deduct again from wallet
+    const buyerNewBalance = buyerCurrentBalance; // No change to wallet balance
+    const buyerNewBlockedBalance = buyerBlockedBalance - price; // Only unblock from blocked balance
+    
+    const { error: buyerUpdateError } = await supabase
+        .from('users')
+        .update({ 
+            wallet_balance: buyerNewBalance,
+            blocked_balance: buyerNewBlockedBalance
+        })
+        .eq('id', buyerId);
+        
+    if (buyerUpdateError) {
+        throw new Error(buyerUpdateError.message);
+    }
+    
+    // Update seller balance
+    const sellerNewBalance = (sellerData.wallet_balance || 0) + price;
+    const { error: sellerUpdateError } = await supabase
+        .from('users')
+        .update({ wallet_balance: sellerNewBalance })
+        .eq('id', simData.seller_id);
+        
+    if (sellerUpdateError) {
+        throw new Error(sellerUpdateError.message);
+    }
+    
+    // Update SIM card status
+    const { error: simUpdateError } = await supabase
+        .from('sim_cards')
+        .update({ status: 'sold', sold_date: new Date().toISOString() })
+        .eq('id', simId);
+        
+    if (simUpdateError) {
+        throw new Error(simUpdateError.message);
+    }
+    
+    // Add transaction records
+    const buyerTransaction = {
+        user_id: buyerId,
+        type: 'purchase' as const,
+        amount: -price,
+        description: `خرید سیمکارت ${simData.number}`,
+        date: new Date().toISOString()
+    };
+    
+    const { error: buyerTransactionError } = await supabase
+        .from('transactions')
+        .insert(buyerTransaction);
+        
+    if (buyerTransactionError) {
+        throw new Error(buyerTransactionError.message);
+    }
+    
+    const sellerTransaction = {
+        user_id: simData.seller_id,
+        type: 'sale' as const,
+        amount: price,
+        description: `فروش سیمکارت ${simData.number}`,
+        date: new Date().toISOString()
+    };
+    
+    const { error: sellerTransactionError } = await supabase
+        .from('transactions')
+        .insert(sellerTransaction);
+        
+    if (sellerTransactionError) {
+        throw new Error(sellerTransactionError.message);
+    }
+    
+    // Handle auction refunds for other bidders
+    // Get bids for this auction
+    const { data: bidsData, error: bidsError } = await supabase
+        .from('bids')
+        .select('*')
+        .eq('sim_card_id', simId);
+        
+    if (!bidsError && bidsData && bidsData.length > 0) {
+        const otherBidders = bidsData.filter(b => b.user_id !== buyerId);
+        
+        for (const bid of otherBidders) {
+            // Get bidder data
+            const { data: bidderData, error: bidderError } = await supabase
+                .from('users')
+                .select('*')
+                .eq('id', bid.user_id)
+                .single();
+                
+            if (!bidderError && bidderData) {
+                const newWalletBalance = (bidderData.wallet_balance || 0) + bid.amount;
+                const newBlockedBalance = (bidderData.blocked_balance || 0) - bid.amount;
+                
+                const { error: bidderUpdateError } = await supabase
+                    .from('users')
+                    .update({ 
+                        wallet_balance: newWalletBalance,
+                        blocked_balance: newBlockedBalance
+                    })
+                    .eq('id', bid.user_id);
+                    
+                if (bidderUpdateError) {
+                    console.error('Error updating bidder balance:', bidderUpdateError.message);
+                }
+            }
+        }
+    }
+};
+
+export const completeAuctionPurchase = async (simId: number): Promise<void> => {
+  // Get the SIM card
+  const { data: simData, error: simError } = await supabase
+    .from('sim_cards')
+    .select('*')
+    .eq('id', simId)
+    .single();
+    
+  if (simError) {
+    throw new Error(simError.message);
+  }
+  
+  if (!simData) {
+    throw new Error('SIM card not found.');
+  }
+  
+  if (simData.type !== 'auction') {
+    throw new Error('This SIM card is not an auction.');
+  }
+  
+  if (simData.status !== 'available') {
+    throw new Error('This SIM card is not available.');
+  }
+  
+  // Get auction details
+  const { data: auctionDetails, error: auctionError } = await supabase
+    .from('auction_details')
+    .select('*')
+    .eq('sim_card_id', simId)
+    .single();
+    
+  if (auctionError) {
+    throw new Error('Auction details not found.');
+  }
+  
+  // Check if auction has ended
+  if (new Date(auctionDetails.end_time) > new Date()) {
+    throw new Error('Auction has not ended yet.');
+  }
+  
+  // Check if there is a highest bidder
+  if (!auctionDetails.highest_bidder_id) {
+    throw new Error('No bids were placed on this auction.');
+  }
+  
+  // Complete the purchase for the highest bidder using the specialized function
+  await completeAuctionPurchaseForWinner(simId, auctionDetails.highest_bidder_id);
+};
+
+export const processEndedAuctions = async (): Promise<void> => {
+  try {
+    // Get all ended auctions that haven't been processed yet
+    const { data: endedAuctions, error: auctionsError } = await supabase
+      .from('sim_cards')
+      .select('id')
+      .eq('type', 'auction')
+      .eq('status', 'available')
+      .lt('auction_details.end_time', new Date().toISOString());
+      
+    if (auctionsError) {
+      throw new Error('Error fetching ended auctions: ' + auctionsError.message);
+    }
+    
+    // Process each ended auction
+    for (const auction of endedAuctions || []) {
+      try {
+        // Check if auction has already been processed by looking for a transaction
+        // First, get the SIM card to get its number
+        const { data: simData, error: simError } = await supabase
+          .from('sim_cards')
+          .select('number, auction_details(highest_bidder_id)')
+          .eq('id', auction.id)
+          .single();
+          
+        if (simError || !simData) {
+          console.error(`Error fetching SIM card ${auction.id}:`, simError);
+          continue;
+        }
+        
+        // Check if there's already a purchase transaction for this SIM card
+        const { data: transactionsData, error: transactionsError } = await supabase
+          .from('transactions')
+          .select('*')
+          .like('description', `خرید سیمکارت ${simData.number}`)
+          .eq('type', 'purchase');
+          
+        if (transactionsError) {
+          console.error(`Error checking transactions for SIM card ${auction.id}:`, transactionsError);
+          continue;
+        }
+        
+        // If there's already a purchase transaction, skip this auction
+        if (transactionsData && transactionsData.length > 0) {
+          console.log(`Auction ${auction.id} already processed, skipping...`);
+          continue;
+        }
+        
+        // If there's no highest bidder, skip this auction
+        // Note: auction_details is returned as an array, so we need to access the first element
+        const auctionDetails = Array.isArray(simData.auction_details) 
+          ? simData.auction_details[0] 
+          : simData.auction_details;
+          
+        if (!auctionDetails || !auctionDetails.highest_bidder_id) {
+          console.log(`Auction ${auction.id} has no highest bidder, skipping...`);
+          continue;
+        }
+        
+        // Process the auction
+        await completeAuctionPurchaseForWinner(auction.id, auctionDetails.highest_bidder_id);
+      } catch (error) {
+        console.error(`Error processing auction ${auction.id}:`, error);
+      }
+    }
+  } catch (error) {
+    console.error('Error in processEndedAuctions:', error);
+    throw error;
+  }
+};
+
 // Export all functions as an object
 const api = {
     signup,
@@ -853,6 +1314,12 @@ const api = {
     processTransaction,
     purchaseSim,
     placeBid,
+    createPaymentReceipt,
+    uploadReceiptImage,
+    completeAuctionPurchase,
+    processEndedAuctions,
+    isAuctionPurchaseCompleted,
+    completeAuctionPurchaseForWinner,
 };
 
 export default api;
