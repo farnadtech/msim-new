@@ -34,8 +34,8 @@ const HomePage: React.FC = () => {
 
     const handleSearch = (criteria: Omit<SearchCriteria, 'minPrice' | 'maxPrice' | 'isRond'>) => {
         const results = simCards.filter(sim => {
-            // A sim is searchable if it's available OR was sold in the last 24 hours
-            if (sim.status !== 'available' && !isRecentlySold(sim)) {
+            // Only show available sims in search
+            if (sim.status !== 'available') {
                 return false;
             }
 
@@ -65,7 +65,7 @@ const HomePage: React.FC = () => {
     const featuredSims = useMemo(() => {
         // Simple logic: get a few available sims, prioritizing rond and auctions
         return [...simCards]
-            .filter(s => s.status === 'available' || isRecentlySold(s))
+            .filter(s => s.status === 'available') // Only show available sims
             .sort((a, b) => {
                 if (a.is_rond !== b.is_rond) return a.is_rond ? -1 : 1;
                 if (a.type === 'auction' && b.type !== 'auction') return -1;
@@ -75,7 +75,47 @@ const HomePage: React.FC = () => {
             .slice(0, 8);
     }, [simCards]);
 
+    // Get operator-specific sims for the new sections
+    const operatorSims = useMemo(() => {
+        const operators = ['همراه اول', 'ایرانسل', 'رایتل'];
+        const result: Record<string, SimCardType[]> = {};
+        
+        operators.forEach(operator => {
+            result[operator] = [...simCards]
+                .filter(s => s.carrier === operator && s.status === 'available') // Only show available sims
+                .sort((a, b) => {
+                    if (a.is_rond !== b.is_rond) return a.is_rond ? -1 : 1;
+                    if (a.type === 'auction' && b.type !== 'auction') return -1;
+                    if (a.type !== 'auction' && b.type === 'auction') return 1;
+                    return b.price - a.price;
+                })
+                .slice(0, 4); // Show only 4 sims per operator
+        });
+        
+        return result;
+    }, [simCards]);
+
+    // Get recently sold sims for the bottom section
+    const recentlySoldSims = useMemo(() => {
+        return [...simCards]
+            .filter(isRecentlySold)
+            .sort((a, b) => {
+                // Sort by sold date, newest first
+                const dateA = a.sold_date ? new Date(a.sold_date).getTime() : 0;
+                const dateB = b.sold_date ? new Date(b.sold_date).getTime() : 0;
+                return dateB - dateA;
+            })
+            .slice(0, 8); // Show only 8 recently sold sims
+    }, [simCards]);
+
     const displaySims = searchResults !== null ? searchResults : featuredSims;
+
+    // Function to navigate to operator page
+    const goToCarrierPage = (carrierName: string) => {
+        const carrierSlug = carrierName === 'همراه اول' ? 'hamrah-aval' : 
+                           carrierName === 'ایرانسل' ? 'irancell' : 'raytel';
+        navigate(`/carrier/${carrierSlug}`);
+    };
 
     return (
         <div className="bg-gray-50 dark:bg-gray-900">
@@ -150,7 +190,107 @@ const HomePage: React.FC = () => {
                     )}
                 </section>
 
-                {/* Remove CarrierSection components as they don't exist */}
+                {/* Operator Sections */}
+                <section className="mt-16">
+                    <h2 className="text-3xl font-bold text-gray-800 dark:text-gray-200 mb-8 text-center">سیمکارت های هر اپراتور</h2>
+                    
+                    {/* Hamrah Aval */}
+                    <div className="mb-12">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-2xl font-semibold text-gray-700 dark:text-gray-300">همراه اول</h3>
+                            <button 
+                                onClick={() => goToCarrierPage('همراه اول')}
+                                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                            >
+                                مشاهده همه
+                            </button>
+                        </div>
+                        {loading ? (
+                            <div className="text-center py-6">در حال بارگذاری...</div>
+                        ) : operatorSims['همراه اول'].length > 0 ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                                {operatorSims['همراه اول'].map(sim => (
+                                    <SimCard key={sim.id} sim={sim} />
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="text-center py-6 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
+                                <p className="text-gray-500 dark:text-gray-400">در حال حاضر سیمکارتی برای همراه اول وجود ندارد.</p>
+                            </div>
+                        )}
+                    </div>
+                    
+                    {/* Irancell */}
+                    <div className="mb-12">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-2xl font-semibold text-gray-700 dark:text-gray-300">ایرانسل</h3>
+                            <button 
+                                onClick={() => goToCarrierPage('ایرانسل')}
+                                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                            >
+                                مشاهده همه
+                            </button>
+                        </div>
+                        {loading ? (
+                            <div className="text-center py-6">در حال بارگذاری...</div>
+                        ) : operatorSims['ایرانسل'].length > 0 ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                                {operatorSims['ایرانسل'].map(sim => (
+                                    <SimCard key={sim.id} sim={sim} />
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="text-center py-6 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
+                                <p className="text-gray-500 dark:text-gray-400">در حال حاضر سیمکارتی برای ایرانسل وجود ندارد.</p>
+                            </div>
+                        )}
+                    </div>
+                    
+                    {/* Raitel */}
+                    <div className="mb-12">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-2xl font-semibold text-gray-700 dark:text-gray-300">رایتل</h3>
+                            <button 
+                                onClick={() => goToCarrierPage('رایتل')}
+                                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                            >
+                                مشاهده همه
+                            </button>
+                        </div>
+                        {loading ? (
+                            <div className="text-center py-6">در حال بارگذاری...</div>
+                        ) : operatorSims['رایتل'].length > 0 ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                                {operatorSims['رایتل'].map(sim => (
+                                    <SimCard key={sim.id} sim={sim} />
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="text-center py-6 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
+                                <p className="text-gray-500 dark:text-gray-400">در حال حاضر سیمکارتی برای رایتل وجود ندارد.</p>
+                            </div>
+                        )}
+                    </div>
+                </section>
+
+                {/* Recently Sold Section */}
+                <section className="mt-16">
+                    <h2 className="text-3xl font-bold text-gray-800 dark:text-gray-200 mb-8 text-center">آخرین سیمکارت های فروخته شده</h2>
+                    
+                    {loading ? (
+                        <div className="text-center py-6">در حال بارگذاری...</div>
+                    ) : recentlySoldSims.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                            {recentlySoldSims.map(sim => (
+                                <SimCard key={sim.id} sim={sim} />
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="text-center py-6 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
+                            <p className="text-gray-500 dark:text-gray-400">در حال حاضر سیمکارت فروخته شده ای وجود ندارد.</p>
+                        </div>
+                    )}
+                </section>
                 
                 <section className="mt-20 text-center">
                     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-10">

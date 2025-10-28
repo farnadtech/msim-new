@@ -1,4 +1,3 @@
-
 import React from 'react';
 // FIX: Replaced v5 `useHistory` with v6 `useNavigate` to resolve module export error.
 import { Link, useNavigate } from 'react-router-dom';
@@ -52,6 +51,22 @@ const Header: React.FC = () => {
         </Link>
         <nav className="hidden md:flex items-center space-x-reverse space-x-6">
           <Link to="/" className="text-gray-600 dark:text-gray-300 hover:text-blue-500">صفحه اصلی</Link>
+          
+          {/* Operators Dropdown */}
+          <div className="relative group">
+            <button className="text-gray-600 dark:text-gray-300 hover:text-blue-500 flex items-center focus:outline-none">
+              اپراتورها
+              <svg xmlns="http://www.w3.org/2000/svg" className="mr-1 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            <div className="absolute right-0 mt-0 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg py-1 hidden group-hover:block group-focus:block">
+              <Link to="/carrier/hamrah-aval" className="block w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">همراه اول</Link>
+              <Link to="/carrier/irancell" className="block w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">ایرانسل</Link>
+              <Link to="/carrier/raytel" className="block w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">رایتل</Link>
+            </div>
+          </div>
+          
           <Link to="/rond-numbers" className="text-gray-600 dark:text-gray-300 hover:text-blue-500">شماره های رند</Link>
           <Link to="/auctions" className="text-gray-600 dark:text-gray-300 hover:text-blue-500">حراجی ها</Link>
           <Link to="/packages" className="text-gray-600 dark:text-gray-300 hover:text-blue-500">تعرفه ها</Link>

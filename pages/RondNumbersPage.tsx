@@ -1,6 +1,7 @@
 import React from 'react';
 import { useData } from '../hooks/useData';
 import SimCard from '../components/SimCard';
+import RecentlySoldSims from '../components/RecentlySoldSims';
 import { SimCard as SimCardType } from '../types';
 
 const RondNumbersPage: React.FC = () => {
@@ -10,7 +11,7 @@ const RondNumbersPage: React.FC = () => {
     return sim.status === 'sold' && sim.sold_date && new Date(sim.sold_date).getTime() > Date.now() - 24 * 60 * 60 * 1000;
   };
 
-  const rondSims = simCards.filter(s => s.is_rond && (s.status === 'available' || isRecentlySold(s)));
+  const rondSims = simCards.filter(s => s.is_rond && s.status === 'available');
 
   return (
     <div className="container mx-auto px-6 py-12">
@@ -30,6 +31,9 @@ const RondNumbersPage: React.FC = () => {
           <p className="text-lg text-gray-600 dark:text-gray-400">در حال حاضر شماره رند برای فروش موجود نیست.</p>
         </div>
       )}
+      
+      {/* Recently Sold Section */}
+      <RecentlySoldSims title="آخرین شماره های رند فروخته شده" limit={8} />
     </div>
   );
 };

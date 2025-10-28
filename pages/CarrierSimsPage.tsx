@@ -1,5 +1,3 @@
-
-
 import React, { useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { useData } from '../hooks/useData';
@@ -24,7 +22,14 @@ const CarrierSimsPage: React.FC = () => {
 
   const carrierSims = useMemo(() => {
     if (!carrier) return [];
-    return simCards.filter(s => s.carrier === carrier && (s.status === 'available' || isRecentlySold(s)));
+    // Show only available sims for this carrier
+    return simCards.filter(s => s.carrier === carrier && s.status === 'available');
+  }, [simCards, carrier]);
+
+  // Get recently sold sims for this carrier specifically
+  const recentlySoldSims = useMemo(() => {
+    if (!carrier) return [];
+    return simCards.filter(s => s.carrier === carrier && isRecentlySold(s));
   }, [simCards, carrier]);
 
   if (!carrier) {
@@ -45,9 +50,23 @@ const CarrierSimsPage: React.FC = () => {
       {loading ? (
         <div className="text-center">در حال بارگذاری...</div>
       ) : carrierSims.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-          {carrierSims.map(sim => <SimCard key={sim.id} sim={sim} />)}
-        </div>
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+            {carrierSims.map(sim => <SimCard key={sim.id} sim={sim} />)}
+          </div>
+          
+          {/* Recently Sold Section for this carrier */}
+          {recentlySoldSims.length > 0 && (
+            <section className="mt-16">
+              <h2 className="text-3xl font-bold text-gray-800 dark:text-gray-200 mb-8 text-center">آخرین سیمکارت های فروخته شده {carrier}</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {recentlySoldSims.map(sim => (
+                  <SimCard key={sim.id} sim={sim} />
+                ))}
+              </div>
+            </section>
+          )}
+        </>
       ) : (
         <div className="text-center py-10 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
           <p className="text-lg text-gray-600 dark:text-gray-400">در حال حاضر سیمکارتی برای اپراتور {carrier} یافت نشد.</p>

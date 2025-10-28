@@ -1,5 +1,5 @@
-
 import React from 'react';
+import { Link } from 'react-router-dom';
 
 const Footer: React.FC = () => {
   return (
@@ -40,9 +40,9 @@ const Footer: React.FC = () => {
           <div>
             <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-4 tracking-wide">اپراتورها</h4>
             <ul className="space-y-3">
-              <li><a href="#" className="text-gray-600 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors">همراه اول</a></li>
-              <li><a href="#" className="text-gray-600 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors">ایرانسل</a></li>
-              <li><a href="#" className="text-gray-600 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors">رایتل</a></li>
+              <li><Link to="/carrier/hamrah-aval" className="text-gray-600 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors">همراه اول</Link></li>
+              <li><Link to="/carrier/irancell" className="text-gray-600 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors">ایرانسل</Link></li>
+              <li><Link to="/carrier/raytel" className="text-gray-600 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors">رایتل</Link></li>
             </ul>
           </div>
           

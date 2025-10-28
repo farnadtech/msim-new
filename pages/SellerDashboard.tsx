@@ -19,7 +19,7 @@ const SellerOverview = () => {
     const userPackage = packages.find(p => p.id === user.package_id);
 
     return (
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md space-y-6">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
             <h2 className="text-2xl font-bold">داشبورد فروشنده</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-green-100 dark:bg-green-900 p-4 rounded-lg text-center">

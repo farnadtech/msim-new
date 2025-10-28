@@ -1,6 +1,7 @@
 import React from 'react';
 import { useData } from '../hooks/useData';
 import SimCard from '../components/SimCard';
+import RecentlySoldSims from '../components/RecentlySoldSims';
 import { SimCard as SimCardType } from '../types';
 
 const AuctionsPage: React.FC = () => {
@@ -10,7 +11,7 @@ const AuctionsPage: React.FC = () => {
     return sim.status === 'sold' && sim.sold_date && new Date(sim.sold_date).getTime() > Date.now() - 24 * 60 * 60 * 1000;
   };
 
-  const auctionSims = simCards.filter(s => s.type === 'auction' && (s.status === 'available' || isRecentlySold(s)));
+  const auctionSims = simCards.filter(s => s.type === 'auction' && s.status === 'available');
 
   return (
     <div className="bg-gray-50 dark:bg-gray-800/50">
@@ -31,6 +32,9 @@ const AuctionsPage: React.FC = () => {
                 <p className="text-lg text-gray-600 dark:text-gray-400">در حال حاضر هیچ حراجی فعالی وجود ندارد.</p>
                 </div>
             )}
+            
+            {/* Recently Sold Section */}
+            <RecentlySoldSims title="آخرین سیمکارت های فروخته شده در حراجی" limit={8} />
         </div>
     </div>
   );
