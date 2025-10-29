@@ -421,6 +421,15 @@ const SellerWallet = ({ onTransaction }: { onTransaction: (amount: number, type:
     );
 };
 
+// Round pricing configuration
+const ROND_PRICES: { [key in 1 | 2 | 3 | 4 | 5]: number } = {
+    1: 5000,
+    2: 10000,
+    3: 15000,
+    4: 20000,
+    5: 25000
+};
+
 const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller_id' | 'status'>) => Promise<void> }) => {
     const { user } = useAuth();
     const { showNotification } = useNotification();
@@ -430,20 +439,20 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
         carrier: 'همراه اول',
         price: '',
         is_rond: false,
+        rond_level: 1 as 1 | 2 | 3 | 4 | 5,
         startingBid: '',
         endTime: '',
         inquiry_phone_number: '',
         is_active: true, // New field with default value true
     });
     const [isLoading, setIsLoading] = useState(false);
-    const ROND_FEE = 5000;
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value, type } = e.target;
         const isCheckbox = type === 'checkbox';
 
         if (name === 'is_rond' && isCheckbox && (e.target as HTMLInputElement).checked) {
-            if (user && (user.wallet_balance || 0) < ROND_FEE) {
+            if (user && (user.wallet_balance || 0) < ROND_PRICES[simData.rond_level]) {
                 // This check is mostly redundant due to the 'disabled' prop, but serves as a safeguard.
                 return;
             }
@@ -489,6 +498,7 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
                 type: saleType,
                 carrier: simData.carrier as 'همراه اول' | 'ایرانسل' | 'رایتل',
                 is_rond: simData.is_rond,
+                rond_level: simData.is_rond ? simData.rond_level : undefined,
                 is_active: simData.is_active, // Include the new field
                 inquiry_phone_number: undefined,
                 auction_details: {
@@ -506,6 +516,7 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
                 type: saleType,
                 carrier: simData.carrier as 'همراه اول' | 'ایرانسل' | 'رایتل',
                 is_rond: simData.is_rond,
+                rond_level: simData.is_rond ? simData.rond_level : undefined,
                 is_active: simData.is_active, // Include the new field
                 inquiry_phone_number: saleType === 'inquiry' ? simData.inquiry_phone_number : undefined,
             };
@@ -519,6 +530,7 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
                 carrier: 'همراه اول',
                 price: '',
                 is_rond: false,
+                rond_level: 1,
                 startingBid: '',
                 endTime: '',
                 inquiry_phone_number: '',
@@ -624,17 +636,41 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
                                 checked={simData.is_rond} 
                                 onChange={handleChange} 
                                 className="w-5 h-5 ml-3 rounded disabled:opacity-50" 
-                                disabled={(user.wallet_balance || 0) < ROND_FEE}
+                                disabled={(user.wallet_balance || 0) < ROND_PRICES[simData.rond_level]}
                             />
-                            <label htmlFor="is_rond" className={`font-medium ${(user.wallet_balance || 0) < ROND_FEE ? 'text-gray-400' : ''}`}>شماره رند است</label>
+                            <label htmlFor="is_rond" className={`font-medium ${(user.wallet_balance || 0) < ROND_PRICES[simData.rond_level] ? 'text-gray-400' : ''}`}>شماره رند است</label>
                         </div>
-                        {(user.wallet_balance || 0) < ROND_FEE ? (
-                             <p className="text-xs text-red-500 mt-1">
-                                برای ثبت شماره به عنوان رند، نیاز به حداقل {ROND_FEE.toLocaleString('fa-IR')} تومان موجودی در کیف پول دارید. لطفا کیف پول خود را شارژ کنید.
-                            </p>
-                        ) : (
-                             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                با انتخاب این گزینه، مبلغ {ROND_FEE.toLocaleString('fa-IR')} تومان از کیف پول شما کسر خواهد شد.
+                        {simData.is_rond && (
+                            <div className="mt-3">
+                                <label className="block mb-2 font-medium">انتخاب سطح رند</label>
+                                <div className="grid grid-cols-5 gap-2">
+                                    {([1, 2, 3, 4, 5] as const).map((level) => (
+                                        <button
+                                            key={level}
+                                            type="button"
+                                            onClick={() => setSimData(prev => ({ ...prev, rond_level: level }))}
+                                            className={`py-2 px-2 rounded-lg font-bold transition-colors ${
+                                                simData.rond_level === level
+                                                    ? 'bg-blue-600 text-white'
+                                                    : 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                                            }`}
+                                        >
+                                            <div className="text-xs">رند {level}</div>
+                                            <div className="text-xs mt-1">{'⭐'.repeat(level)}</div>
+                                            <div className="text-xs mt-1">{ROND_PRICES[level].toLocaleString('fa-IR')}</div>
+                                        </button>
+                                    ))}
+                                </div>
+                                {(user.wallet_balance || 0) < ROND_PRICES[simData.rond_level] && (
+                                    <p className="text-xs text-red-500 mt-2">
+                                        موجودی کافی نیست. نیاز به {ROND_PRICES[simData.rond_level].toLocaleString('fa-IR')} تومان
+                                    </p>
+                                )}
+                            </div>
+                        )}
+                        {!simData.is_rond && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                برای ثبت شماره به عنوان رند، باید این گزینه را انتخاب کنید و سطح رند را مشخص کنید.
                             </p>
                         )}
                     </div>

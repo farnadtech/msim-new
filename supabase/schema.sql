@@ -40,6 +40,7 @@ CREATE TABLE sim_cards (
   sold_date TIMESTAMP WITH TIME ZONE,
   carrier TEXT CHECK (carrier IN ('همراه اول', 'ایرانسل', 'رایتل')) NOT NULL,
   is_rond BOOLEAN NOT NULL DEFAULT false,
+  rond_level INTEGER CHECK (rond_level IN (1, 2, 3, 4, 5)),
   is_active BOOLEAN NOT NULL DEFAULT true,
   inquiry_phone_number TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),

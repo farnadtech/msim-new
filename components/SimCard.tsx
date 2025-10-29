@@ -80,7 +80,7 @@ const SimCard: React.FC<SimCardProps> = ({ sim }) => {
     if (isActive === undefined || isActive === true) {
       return 'فعال';
     } else {
-      return 'غیرفعال';
+      return 'صفر';
     }
   };
   
@@ -111,15 +111,24 @@ const SimCard: React.FC<SimCardProps> = ({ sim }) => {
             </div>
         )}
       <div className="p-6 flex-grow">
-        <div className="flex justify-between items-center mb-4">
+        <div className="flex justify-between items-start mb-4 gap-2">
           <span className={`px-3 py-1 text-xs font-semibold rounded-full ${getCarrierColor(sim.carrier)}`}>
             {sim.carrier}
           </span>
-          <div className="flex space-x-2 space-x-reverse">
+          <div className="flex flex-col items-end gap-1">
             {sim.is_rond && (
-              <span className="px-3 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
-                رند
-              </span>
+              <div className="text-center">
+                <div className="px-3 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                  رند
+                </div>
+                <div className="text-lg flex justify-center" title={`رند ${sim.rond_level || 1} ستاره`}>
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <span key={star} className={star <= (sim.rond_level || 1) ? 'text-yellow-400' : 'text-gray-300'}>
+                      ★
+                    </span>
+                  ))}
+                </div>
+              </div>
             )}
             <span className={`px-3 py-1 text-xs font-semibold rounded-full ${getStatusColor(sim.is_active)}`}>
               {getStatusText(sim.is_active)}

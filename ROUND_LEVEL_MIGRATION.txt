@@ -1,0 +1,52 @@
+ROUND LEVEL FEATURE - DATABASE MIGRATION REQUIRED
+
+The new round level feature has been implemented with the following changes:
+
+1. FRONTEND CHANGES (✓ COMPLETED):
+   - Added round level selection menu (1-5 stars) in seller dashboard
+   - Added beautiful star rating display on SIM card components
+   - Removed fixed 5,000 Tomans fee system
+   - Implemented tiered pricing based on round level
+
+2. PRICING STRUCTURE:
+   - رند 1 (1 star): 5,000 تومان
+   - رند 2 (2 stars): 10,000 تومان
+   - رند 3 (3 stars): 15,000 تومان
+   - رند 4 (4 stars): 20,000 تومان
+   - رند 5 (5 stars): 25,000 تومان
+
+3. DATABASE MIGRATION REQUIRED:
+   
+   You must run this SQL in your Supabase SQL Editor to add the rond_level column:
+   
+   ```sql
+   ALTER TABLE sim_cards ADD COLUMN rond_level INTEGER CHECK (rond_level IN (1, 2, 3, 4, 5));
+   CREATE INDEX idx_sim_cards_rond_level ON sim_cards(rond_level);
+   ```
+   
+   Steps:
+   1. Go to https://app.supabase.com
+   2. Select your project
+   3. Click on "SQL Editor" in the left sidebar
+   4. Click "New Query"
+   5. Paste the SQL above
+   6. Click "Run" button
+
+4. WHAT THE DATABASE CHANGE DOES:
+   - Adds a new optional column 'rond_level' to sim_cards table
+   - Accepts values 1-5 for round level
+   - Creates an index for better query performance
+
+5. FILES MODIFIED:
+   - e:\code\msim\types.ts - Added rond_level field to SimCard type
+   - e:\code\msim\pages\SellerDashboard.tsx - Added round selection UI
+   - e:\code\msim\components\SimCard.tsx - Added star rating display
+   - e:\code\msim\services\api-supabase.ts - Updated pricing logic
+   - e:\code\msim\supabase\schema.sql - Updated schema with rond_level
+
+6. BACKEND LOGIC:
+   - When a user selects a round level, the price is deducted from their wallet
+   - Transaction description includes the round level
+   - The rond_level is stored in the database for future reference
+
+After running the SQL migration, the feature will be fully functional!

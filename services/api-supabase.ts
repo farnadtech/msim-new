@@ -186,7 +186,7 @@ export const getSimCards = async (): Promise<SimCard[]> => {
 
 export const addSimCard = async (simData: Omit<SimCard, 'id'>): Promise<string> => {
     // Prepare sim card data without ID (let DB auto-generate)
-    const simCardPayload = {
+    const simCardPayload: any = {
         number: simData.number,
         price: simData.price,
         seller_id: simData.seller_id,
@@ -195,9 +195,14 @@ export const addSimCard = async (simData: Omit<SimCard, 'id'>): Promise<string> 
         sold_date: simData.sold_date,
         carrier: simData.carrier,
         is_rond: simData.is_rond,
-        is_active: simData.is_active, // Include the new field
+        is_active: simData.is_active,
         inquiry_phone_number: simData.inquiry_phone_number
     };
+    
+    // Add rond_level if this is a rond sim card
+    if (simData.is_rond && simData.rond_level) {
+        simCardPayload.rond_level = simData.rond_level;
+    }
 
     // Insert the sim card
     const { data: simCardData, error: simCardError } = await supabase
@@ -210,16 +215,20 @@ export const addSimCard = async (simData: Omit<SimCard, 'id'>): Promise<string> 
         // Let's try to insert without specifying any ID-related fields
         if (simCardError.message.includes('duplicate key value violates unique constraint')) {
             // Try again with minimal data
-            const minimalPayload = {
+            const minimalPayload: any = {
                 number: simData.number,
                 price: simData.price,
                 seller_id: simData.seller_id,
                 type: simData.type,
-                status: 'available', // Always default to available
+                status: 'available',
                 carrier: simData.carrier,
                 is_rond: simData.is_rond,
-                is_active: simData.is_active // Include the new field
+                is_active: simData.is_active
             };
+            
+            if (simData.is_rond && simData.rond_level) {
+                minimalPayload.rond_level = simData.rond_level;
+            }
             
             const { data: retryData, error: retryError } = await supabase
                 .from('sim_cards')
@@ -236,10 +245,19 @@ export const addSimCard = async (simData: Omit<SimCard, 'id'>): Promise<string> 
             let transactionAmount = 0;
             let transactionDescription = '';
             
-            // If this is a rond sim card, charge 5000 tomans
-            if (simData.is_rond) {
-                transactionAmount -= 5000;
-                transactionDescription = `هزینه ثبت سیمکارت رند ${simData.number}`;
+            // Round pricing based on level
+            const ROND_PRICES: { [key in 1 | 2 | 3 | 4 | 5]: number } = {
+                1: 5000,
+                2: 10000,
+                3: 15000,
+                4: 20000,
+                5: 25000
+            };
+            
+            // If this is a rond sim card, charge based on the round level
+            if (simData.is_rond && simData.rond_level) {
+                transactionAmount -= ROND_PRICES[simData.rond_level];
+                transactionDescription = `هزینه ثبت سیمکارت رند ${simData.number} (رند ${simData.rond_level} ستاره)`;
                 
                 // Process the transaction if there's a charge
                 if (transactionAmount < 0) {
@@ -323,10 +341,19 @@ export const addSimCard = async (simData: Omit<SimCard, 'id'>): Promise<string> 
     let transactionAmount = 0;
     let transactionDescription = '';
     
-    // If this is a rond sim card, charge 5000 tomans
-    if (simData.is_rond) {
-        transactionAmount -= 5000;
-        transactionDescription = `هزینه ثبت سیمکارت رند ${simData.number}`;
+    // Round pricing based on level
+    const ROND_PRICES: { [key in 1 | 2 | 3 | 4 | 5]: number } = {
+        1: 5000,
+        2: 10000,
+        3: 15000,
+        4: 20000,
+        5: 25000
+    };
+    
+    // If this is a rond sim card, charge based on the round level
+    if (simData.is_rond && simData.rond_level) {
+        transactionAmount -= ROND_PRICES[simData.rond_level];
+        transactionDescription = `هزینه ثبت سیمکارت رند ${simData.number} (رند ${simData.rond_level} ستاره)`;
         
         // Process the transaction if there's a charge
         if (transactionAmount < 0) {

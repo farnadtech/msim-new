@@ -30,6 +30,7 @@ export interface SimCard {
   sold_date?: string;
   carrier: 'همراه اول' | 'ایرانسل' | 'رایتل';
   is_rond: boolean;
+  rond_level?: 1 | 2 | 3 | 4 | 5; // Round level (1 to 5 stars)
   inquiry_phone_number?: string;
   auction_details?: {
     end_time: string;

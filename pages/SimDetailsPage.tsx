@@ -248,11 +248,29 @@ const SimDetailsPage: React.FC = () => {
         <div className="container mx-auto px-4 py-12">
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl overflow-hidden md:flex">
                 <div className="md:w-1/2 p-8">
-                    <div className="flex justify-between items-start mb-4">
+                    <div className="flex justify-between items-start mb-4 gap-2">
                         <span className={`px-3 py-1 text-sm font-semibold rounded-full ${sim.carrier === 'همراه اول' ? 'bg-blue-100 text-blue-800' : sim.carrier === 'ایرانسل' ? 'bg-yellow-100 text-yellow-800' : 'bg-purple-100 text-purple-800'}`}>
                             {sim.carrier}
                         </span>
-                        {sim.is_rond && <span className="px-3 py-1 text-sm font-semibold rounded-full bg-green-100 text-green-800">رند</span>}
+                        <div className="flex flex-col items-end gap-1">
+                            {sim.is_rond && (
+                                <div className="text-center">
+                                    <div className="px-3 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                                        رند
+                                    </div>
+                                    <div className="text-lg flex justify-center" title={`رند ${sim.rond_level || 1} ستاره`}>
+                                        {[1, 2, 3, 4, 5].map((star) => (
+                                            <span key={star} className={star <= (sim.rond_level || 1) ? 'text-yellow-400' : 'text-gray-300'}>
+                                                ★
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            <span className={`px-3 py-1 text-xs font-semibold rounded-full ${sim.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                {sim.is_active ? 'فعال' : 'صفر'}
+                            </span>
+                        </div>
                     </div>
                     <h1 className="text-4xl md:text-5xl font-bold text-center tracking-widest my-8 dark:text-white" style={{ direction: 'ltr' }}>
                         {sim.number.slice(0, 4)} - {sim.number.slice(4, 7)} - {sim.number.slice(7)}
