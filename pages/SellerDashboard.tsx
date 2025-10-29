@@ -485,6 +485,12 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
             return;
         }
         
+        // Validate auction starting bid minimum
+        if (saleType === 'auction' && parseInt(simData.startingBid, 10) < 1000000) {
+            showNotification('قیمت پایه حراجی نمی تواند کمتر از 1,000,000 تومان باشد.', 'error');
+            return;
+        }
+        
         setIsLoading(true);
         
         // Prepare the data to send
@@ -597,6 +603,7 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
                             <div>
                                 <label htmlFor="startingBid" className="block mb-2 font-medium">قیمت پایه (تومان)</label>
                                 <input type="number" name="startingBid" id="startingBid" value={simData.startingBid} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600" />
+                                <p className="text-xs text-gray-500 mt-1">حداقل قیمت پایه: 1,000,000 تومان</p>
                             </div>
                             <div>
                                 <label htmlFor="endTime" className="block mb-2 font-medium">زمان پایان حراجی</label>

@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { User, SimCard, Package, Transaction, Bid } from '../types';
+import { User, SimCard, Package, Transaction, Bid, Commission } from '../types';
 import { ZARINPAL_CONFIG } from '../config/zarinpal';
 
 // Function to remove undefined properties from an object
@@ -562,8 +562,11 @@ export const purchaseSim = async (simId: number, buyerId: string): Promise<void>
         throw new Error(buyerUpdateError.message);
     }
     
-    // Update seller balance
-    const sellerNewBalance = (sellerData.wallet_balance || 0) + price;
+    // Update seller balance with 2% commission deduction
+    const COMMISSION_PERCENTAGE = 2;
+    const commissionAmount = Math.floor(price * (COMMISSION_PERCENTAGE / 100));
+    const sellerReceivedAmount = price - commissionAmount;
+    const sellerNewBalance = (sellerData.wallet_balance || 0) + sellerReceivedAmount;
     const { error: sellerUpdateError } = await supabase
         .from('users')
         .update({ wallet_balance: sellerNewBalance })
@@ -571,6 +574,38 @@ export const purchaseSim = async (simId: number, buyerId: string): Promise<void>
         
     if (sellerUpdateError) {
         throw new Error(sellerUpdateError.message);
+    }
+    
+    // Record commission in commissions table
+    const { data: commissionBuyerData, error: buyerDataError } = await supabase
+        .from('users')
+        .select('name')
+        .eq('id', buyerId)
+        .single();
+        
+    if (!buyerDataError && commissionBuyerData) {
+        const commissionRecord = {
+            sim_card_id: simId,
+            seller_id: simData.seller_id,
+            seller_name: sellerData.name,
+            sim_number: simData.number,
+            sale_price: price,
+            commission_amount: commissionAmount,
+            commission_percentage: COMMISSION_PERCENTAGE,
+            seller_received_amount: sellerReceivedAmount,
+            sale_type: simData.type,
+            buyer_id: buyerId,
+            buyer_name: commissionBuyerData.name,
+            date: new Date().toISOString()
+        };
+        
+        const { error: commissionError } = await supabase.from('commissions').insert(commissionRecord);
+        
+        if (commissionError) {
+            console.error('Error recording commission:', commissionError.message);
+        }
+    } else {
+        console.error('Error fetching buyer data for commission:', buyerDataError?.message);
     }
     
     // Update SIM card status
@@ -603,8 +638,8 @@ export const purchaseSim = async (simId: number, buyerId: string): Promise<void>
     const sellerTransaction = {
         user_id: simData.seller_id,
         type: 'sale' as const,
-        amount: price,
-        description: `فروش سیمکارت ${simData.number}`,
+        amount: sellerReceivedAmount,
+        description: `فروش سیمکارت ${simData.number} (کمیسیون ${commissionAmount} تومان کسر شد)`,
         date: new Date().toISOString()
     };
     
@@ -1346,8 +1381,11 @@ export const completeAuctionPurchaseForWinner = async (simId: number, buyerId: s
         throw new Error(buyerUpdateError.message);
     }
     
-    // Update seller balance
-    const sellerNewBalance = (sellerData.wallet_balance || 0) + price;
+    // Update seller balance with 2% commission deduction
+    const COMMISSION_PERCENTAGE = 2;
+    const commissionAmount = Math.floor(price * (COMMISSION_PERCENTAGE / 100));
+    const sellerReceivedAmount = price - commissionAmount;
+    const sellerNewBalance = (sellerData.wallet_balance || 0) + sellerReceivedAmount;
     const { error: sellerUpdateError } = await supabase
         .from('users')
         .update({ wallet_balance: sellerNewBalance })
@@ -1387,8 +1425,8 @@ export const completeAuctionPurchaseForWinner = async (simId: number, buyerId: s
     const sellerTransaction = {
         user_id: simData.seller_id,
         type: 'sale' as const,
-        amount: price,
-        description: `فروش سیمکارت ${simData.number}`,
+        amount: sellerReceivedAmount,
+        description: `فروش سیمکارت ${simData.number} (کمیسیون ${commissionAmount} تومان کسر شد)`,
         date: new Date().toISOString()
     };
     
@@ -1398,6 +1436,38 @@ export const completeAuctionPurchaseForWinner = async (simId: number, buyerId: s
         
     if (sellerTransactionError) {
         throw new Error(sellerTransactionError.message);
+    }
+    
+    // Record commission in commissions table
+    const { data: commissionBuyerData, error: buyerDataError } = await supabase
+        .from('users')
+        .select('name')
+        .eq('id', buyerId)
+        .single();
+        
+    if (!buyerDataError && commissionBuyerData) {
+        const commissionRecord = {
+            sim_card_id: simId,
+            seller_id: simData.seller_id,
+            seller_name: sellerData.name,
+            sim_number: simData.number,
+            sale_price: price,
+            commission_amount: commissionAmount,
+            commission_percentage: COMMISSION_PERCENTAGE,
+            seller_received_amount: sellerReceivedAmount,
+            sale_type: simData.type,
+            buyer_id: buyerId,
+            buyer_name: commissionBuyerData.name,
+            date: new Date().toISOString()
+        };
+        
+        const { error: commissionError } = await supabase.from('commissions').insert(commissionRecord);
+        
+        if (commissionError) {
+            console.error('Error recording commission:', commissionError.message);
+        }
+    } else {
+        console.error('Error fetching buyer data for commission:', buyerDataError?.message);
     }
     
     // Handle auction refunds for other bidders
@@ -1558,6 +1628,19 @@ export const processEndedAuctions = async (): Promise<void> => {
   }
 };
 
+export const getCommissions = async (): Promise<Commission[]> => {
+    const { data, error } = await supabase
+        .from('commissions')
+        .select('*')
+        .order('created_at', { ascending: false });
+        
+    if (error) {
+        throw new Error(error.message);
+    }
+    
+    return data || [];
+};
+
 // Export all functions as an object
 const api = {
     signup,
@@ -1588,6 +1671,7 @@ const api = {
     processEndedAuctions,
     isAuctionPurchaseCompleted,
     completeAuctionPurchaseForWinner,
+    getCommissions,
 };
 
 export default api;

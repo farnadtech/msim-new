@@ -7,6 +7,7 @@ import { User, SimCard, Package } from '../types';
 import { useNotification } from '../contexts/NotificationContext';
 import api from '../services/api';
 import AdminPaymentReceipts from './AdminPaymentReceipts';
+import AdminCommissionsReport from './AdminCommissionsReport';
 
 const AdminSeedNotice: React.FC<{ onSeeded: () => void }> = ({ onSeeded }) => {
     const [isLoading, setIsLoading] = useState(false);
@@ -468,6 +469,7 @@ const sidebar = (
       <NavItem to="simcards">مدیریت سیمکارت ها</NavItem>
       <NavItem to="packages">مدیریت پکیج ها</NavItem>
       <NavItem to="payment-receipts">رسیدهای پرداخت</NavItem>
+      <NavItem to="commissions">گزارش کمیسیون‌ها</NavItem>
     </nav>
   </div>
 );
@@ -483,6 +485,7 @@ const AdminDashboard: React.FC = () => {
             <Route path="simcards" element={<ManageSimCards />} />
             <Route path="packages" element={<ManagePackages />} />
             <Route path="payment-receipts" element={<AdminPaymentReceipts />} />
+            <Route path="commissions" element={<AdminCommissionsReport />} />
         </Routes>
     </DashboardLayout>
   );

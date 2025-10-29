@@ -72,3 +72,20 @@ export interface PaymentReceipt {
     processed_at?: string;
     processed_by?: string;
 }
+
+export interface Commission {
+    id: number;
+    sim_card_id: number;
+    seller_id: string;
+    seller_name: string;
+    sim_number: string;
+    sale_price: number;
+    commission_amount: number;
+    commission_percentage: number;
+    seller_received_amount: number;
+    sale_type: 'fixed' | 'auction';
+    buyer_id: string;
+    buyer_name: string;
+    date: string;
+    created_at: string;
+}
