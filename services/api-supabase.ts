@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { User, SimCard, Package, Transaction, Bid, Commission } from '../types';
+import { User, SimCard, Package, Transaction, Bid, Commission, SecurePayment, BuyerPaymentCode } from '../types';
 import { ZARINPAL_CONFIG } from '../config/zarinpal';
 
 // Function to remove undefined properties from an object
@@ -1641,6 +1641,591 @@ export const getCommissions = async (): Promise<Commission[]> => {
     return data || [];
 };
 
+// --- Secure Payments (Escrow System) ---
+
+export const generateBuyerPaymentCode = async (userId: string): Promise<string> => {
+    // Check if user already has a payment code
+    const { data: existingCode, error: checkError } = await supabase
+        .from('buyer_payment_codes')
+        .select('payment_code')
+        .eq('user_id', userId)
+        .single();
+    
+    if (existingCode && !checkError) {
+        return existingCode.payment_code;
+    }
+    
+    // Generate a unique payment code (format: BUYER-XXXXXXXX)
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let randomPart = '';
+    for (let i = 0; i < 8; i++) {
+        randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    const paymentCode = `BUYER-${randomPart}`;
+    
+    // Check if code already exists (very unlikely but check anyway)
+    const { data: codeExists } = await supabase
+        .from('buyer_payment_codes')
+        .select('id')
+        .eq('payment_code', paymentCode)
+        .single();
+    
+    if (codeExists) {
+        // Recursively generate a new code if this one exists
+        return generateBuyerPaymentCode(userId);
+    }
+    
+    // Insert the new payment code
+    const { error: insertError } = await supabase
+        .from('buyer_payment_codes')
+        .insert({ user_id: userId, payment_code: paymentCode });
+    
+    if (insertError) {
+        throw new Error(`Failed to generate payment code: ${insertError.message}`);
+    }
+    
+    return paymentCode;
+};
+
+export const getBuyerPaymentCode = async (userId: string): Promise<string | null> => {
+    const { data, error } = await supabase
+        .from('buyer_payment_codes')
+        .select('payment_code')
+        .eq('user_id', userId)
+        .single();
+    
+    if (error) {
+        if (error.code === 'PGRST116') { // Not found
+            return null;
+        }
+        throw new Error(error.message);
+    }
+    
+    return data?.payment_code || null;
+};
+
+export const createSecurePayment = async (
+    buyerCode: string,
+    simCardId: number,
+    sellerId: string,
+    customAmount?: number
+): Promise<SecurePayment> => {
+    // Normalize buyer code (trim and uppercase)
+    const normalizedCode = buyerCode.trim().toUpperCase();
+    
+    // Get buyer ID from payment code
+    const { data: codeData, error: codeError } = await supabase
+        .from('buyer_payment_codes')
+        .select('user_id, payment_code')
+        .ilike('payment_code', normalizedCode)
+        .single();
+    
+    if (codeError || !codeData) {
+        throw new Error('کد پرداخت نامعتبر است');
+    }
+    
+    const buyerId = codeData.user_id;
+    
+    // Get SIM card details
+    const { data: simCard, error: simError } = await supabase
+        .from('sim_cards')
+        .select('*')
+        .eq('id', simCardId)
+        .single();
+    
+    if (simError || !simCard) {
+        throw new Error('شماره سیمکارت یافت نشد');
+    }
+    
+    if (simCard.seller_id !== sellerId) {
+        throw new Error('این شماره به شما تعلق ندارد');
+    }
+    
+    if (simCard.status !== 'available') {
+        throw new Error('این شماره دیگر در دسترس نیست');
+    }
+    
+    // Check if SIM is already reserved for another secure payment
+    if (simCard.reserved_by_secure_payment_id) {
+        // Check if it's reserved by the same buyer for this payment
+        const { data: existingPayment } = await supabase
+            .from('secure_payments')
+            .select('id, buyer_id')
+            .eq('id', simCard.reserved_by_secure_payment_id)
+            .single();
+        
+        // If reserved for a different buyer, reject
+        if (existingPayment && existingPayment.buyer_id !== buyerId) {
+            throw new Error('این شماره لاله خریدار دیگری است');
+        }
+    }
+    
+    // Get buyer details
+    const { data: buyerData, error: buyerError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', buyerId)
+        .single();
+    
+    if (buyerError || !buyerData) {
+        throw new Error('خریدار یافت نشد');
+    }
+    
+    // Get seller details
+    const { data: sellerData, error: sellerError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', sellerId)
+        .single();
+    
+    if (sellerError || !sellerData) {
+        throw new Error('فروشنده یافت نشد');
+    }
+    
+    const amount = customAmount || simCard.price;
+    
+    // Check if buyer has enough balance
+    if ((buyerData.wallet_balance || 0) < amount) {
+        throw new Error('موجودی کیف پول برای انجام این پرداخت امن کافی نیست');
+    }
+    
+    // Create secure payment record WITHOUT blocking money yet
+    const { data: securePaymentData, error: paymentError } = await supabase
+        .from('secure_payments')
+        .insert({
+            buyer_id: buyerId,
+            buyer_name: buyerData.name,
+            seller_id: sellerId,
+            seller_name: sellerData.name,
+            sim_card_id: simCardId,
+            sim_number: simCard.number,
+            amount: amount,
+            buyer_code: codeData.payment_code,
+            status: 'pending',
+            created_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+    
+    if (paymentError) {
+        throw new Error(`خطا در ثبت پرداخت امن: ${paymentError.message}`);
+    }
+    
+    return securePaymentData as SecurePayment;
+};
+
+export const withdrawSecurePaymentFunds = async (
+    securePaymentId: number,
+    buyerId: string
+): Promise<void> => {
+    // Get secure payment details
+    const { data: payment, error: paymentError } = await supabase
+        .from('secure_payments')
+        .select('*')
+        .eq('id', securePaymentId)
+        .single();
+    
+    if (paymentError || !payment) {
+        throw new Error('پرداخت امن یافت نشد');
+    }
+    
+    if (payment.buyer_id !== buyerId) {
+        throw new Error('شما برای این پرداخت مجاز نیستید');
+    }
+    
+    if (payment.status !== 'pending') {
+        throw new Error('این پرداخت امن قابل برداشت نیست');
+    }
+    
+    if (payment.withdrawn_at) {
+        throw new Error('این پرداخت امن قبلاً برداشت شده است');
+    }
+    
+    // Get buyer details
+    const { data: buyerData, error: buyerError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', buyerId)
+        .single();
+    
+    if (buyerError || !buyerData) {
+        throw new Error('خریدار یافت نشد');
+    }
+    
+    // Check if buyer has enough balance
+    if ((buyerData.wallet_balance || 0) < payment.amount) {
+        throw new Error('موجودی کیف پول کافی نیست');
+    }
+    
+    // Deduct amount from buyer's wallet and add to blocked_balance
+    const buyerNewBalance = (buyerData.wallet_balance || 0) - payment.amount;
+    const buyerNewBlockedBalance = (buyerData.blocked_balance || 0) + payment.amount;
+    const { error: buyerUpdateError } = await supabase
+        .from('users')
+        .update({ 
+            wallet_balance: buyerNewBalance,
+            blocked_balance: buyerNewBlockedBalance
+        })
+        .eq('id', buyerId);
+    
+    if (buyerUpdateError) {
+        throw new Error(`خطا در برداشت مبلغ: ${buyerUpdateError.message}`);
+    }
+    
+    // Lock SIM card to this buyer by marking withdrawal
+    const { error: paymentUpdateError } = await supabase
+        .from('secure_payments')
+        .update({
+            withdrawn_at: new Date().toISOString(),
+            locked_to_buyer_id: buyerId
+        })
+        .eq('id', securePaymentId);
+    
+    if (paymentUpdateError) {
+        // Rollback buyer's wallet
+        await supabase
+            .from('users')
+            .update({ 
+                wallet_balance: buyerData.wallet_balance,
+                blocked_balance: buyerData.blocked_balance
+            })
+            .eq('id', buyerId);
+        throw new Error(`خطا در برداشت: ${paymentUpdateError.message}`);
+    }
+    
+    // Lock SIM card to this secure payment
+    const { error: simUpdateError } = await supabase
+        .from('sim_cards')
+        .update({ reserved_by_secure_payment_id: securePaymentId })
+        .eq('id', payment.sim_card_id);
+    
+    if (simUpdateError) {
+        // Rollback all changes
+        await supabase
+            .from('users')
+            .update({ 
+                wallet_balance: buyerData.wallet_balance,
+                blocked_balance: buyerData.blocked_balance
+            })
+            .eq('id', buyerId);
+        await supabase
+            .from('secure_payments')
+            .update({
+                withdrawn_at: null,
+                locked_to_buyer_id: null
+            })
+            .eq('id', securePaymentId);
+        throw new Error(`خطا در قفل کردن شماره: ${simUpdateError.message}`);
+    }
+    
+    // Create transaction record
+    await supabase.from('transactions').insert({
+        user_id: buyerId,
+        type: 'purchase',
+        amount: -payment.amount,
+        description: `برداشت مبلغ پرداخت امن برای شماره ${payment.sim_number}`,
+        date: new Date().toISOString()
+    });
+};
+
+export const releaseSecurePayment = async (
+    securePaymentId: number,
+    buyerId: string
+): Promise<void> => {
+    // Get secure payment details
+    const { data: payment, error: paymentError } = await supabase
+        .from('secure_payments')
+        .select('*')
+        .eq('id', securePaymentId)
+        .single();
+    
+    if (paymentError || !payment) {
+        throw new Error('پرداخت امن یافت نشد');
+    }
+    
+    if (payment.buyer_id !== buyerId) {
+        throw new Error('شما مجاز به تایید این پرداخت نیستید');
+    }
+    
+    if (payment.status !== 'pending') {
+        throw new Error('این پرداخت امن قابل تایید نیست');
+    }
+    
+    // Check if funds were withdrawn
+    if (!payment.withdrawn_at) {
+        throw new Error('لطفاً ابتدا مبلغ پرداخت امن را برداشت کنید');
+    }
+    
+    // Get buyer details
+    const { data: buyerData, error: buyerError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', payment.buyer_id)
+        .single();
+    
+    if (buyerError || !buyerData) {
+        throw new Error('خریدار یافت نشد');
+    }
+    
+    // Get seller details
+    const { data: sellerData, error: sellerError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', payment.seller_id)
+        .single();
+    
+    if (sellerError || !sellerData) {
+        throw new Error('فروشنده یافت نشد');
+    }
+    
+    // Calculate 2% commission
+    const COMMISSION_PERCENTAGE = 2;
+    const commissionAmount = Math.floor(payment.amount * (COMMISSION_PERCENTAGE / 100));
+    const sellerReceivedAmount = payment.amount - commissionAmount;
+    
+    // Update buyer's blocked_balance (remove the held amount)
+    const buyerNewBlockedBalance = (buyerData.blocked_balance || 0) - payment.amount;
+    const { error: buyerUpdateError } = await supabase
+        .from('users')
+        .update({ blocked_balance: buyerNewBlockedBalance })
+        .eq('id', buyerId);
+    
+    if (buyerUpdateError) {
+        throw new Error(`خطا در بروزرسانی کیف پول خریدار: ${buyerUpdateError.message}`);
+    }
+    
+    // Update seller's wallet (add with commission deducted)
+    const sellerNewWalletBalance = (sellerData.wallet_balance || 0) + sellerReceivedAmount;
+    
+    const { error: sellerUpdateError } = await supabase
+        .from('users')
+        .update({
+            wallet_balance: sellerNewWalletBalance
+        })
+        .eq('id', payment.seller_id);
+    
+    if (sellerUpdateError) {
+        // Rollback buyer's blocked balance
+        await supabase
+            .from('users')
+            .update({ blocked_balance: buyerData.blocked_balance })
+            .eq('id', buyerId);
+        throw new Error(`خطا در آزادسازی پول: ${sellerUpdateError.message}`);
+    }
+    
+    // Record commission in commissions table
+    const { error: commissionError } = await supabase
+        .from('commissions')
+        .insert({
+            seller_id: payment.seller_id,
+            buyer_id: payment.buyer_id,
+            seller_name: sellerData.name,
+            buyer_name: buyerData.name,
+            amount: commissionAmount,
+            transaction_type: 'secure_payment',
+            transaction_id: securePaymentId,
+            description: `کارمزد پرداخت امن - شماره ${payment.sim_number}`,
+            created_at: new Date().toISOString()
+        });
+    
+    if (commissionError) {
+        console.error('خطا در ثبت کارمزد:', commissionError);
+    }
+    
+    // Update payment status to released
+    const { error: updateError } = await supabase
+        .from('secure_payments')
+        .update({
+            status: 'released',
+            released_at: new Date().toISOString()
+        })
+        .eq('id', securePaymentId);
+    
+    if (updateError) {
+        throw new Error(`خطا در بروزرسانی وضعیت پرداخت: ${updateError.message}`);
+    }
+    
+    // Mark SIM card as sold
+    const { error: simUpdateError } = await supabase
+        .from('sim_cards')
+        .update({ status: 'sold' })
+        .eq('id', payment.sim_card_id);
+    
+    if (simUpdateError) {
+        console.error('خطا در علامتگذاری به عنوان فروخته شده:', simUpdateError);
+    }
+    
+    // Create transaction for seller (with commission deducted)
+    await supabase.from('transactions').insert({
+        user_id: payment.seller_id,
+        type: 'sale',
+        amount: sellerReceivedAmount,
+        description: `تایید پرداخت امن برای شماره ${payment.sim_number} (کارمزد: ${commissionAmount})`,
+        date: new Date().toISOString()
+    });
+    
+    // Create transaction for buyer (deduction from blocked balance)
+    await supabase.from('transactions').insert({
+        user_id: payment.buyer_id,
+        type: 'purchase',
+        amount: -payment.amount,
+        description: `تایید پرداخت امن برای شماره ${payment.sim_number}`,
+        date: new Date().toISOString()
+    });
+};
+
+export const cancelSecurePayment = async (
+    securePaymentId: number,
+    buyerId: string
+): Promise<void> => {
+    // Get secure payment details
+    const { data: payment, error: paymentError } = await supabase
+        .from('secure_payments')
+        .select('*')
+        .eq('id', securePaymentId)
+        .single();
+    
+    if (paymentError || !payment) {
+        throw new Error('پرداخت امن یافت نشد');
+    }
+    
+    if (payment.buyer_id !== buyerId) {
+        throw new Error('شما مجاز به لغو این پرداخت نیستید');
+    }
+    
+    if (payment.status !== 'pending') {
+        throw new Error('این پرداخت امن قابل لغو نیست');
+    }
+    
+    // Check if funds were withdrawn
+    if (!payment.withdrawn_at) {
+        throw new Error('هنوز مبلغ برداشت نشده است بنابراین نمیتوانید لغو کنید');
+    }
+    
+    // Get buyer details
+    const { data: buyerData, error: buyerError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', buyerId)
+        .single();
+    
+    if (buyerError || !buyerData) {
+        throw new Error('خریدار یافت نشد');
+    }
+    
+    // Refund from blocked_balance to wallet_balance
+    const buyerNewBlockedBalance = (buyerData.blocked_balance || 0) - payment.amount;
+    const buyerNewWalletBalance = (buyerData.wallet_balance || 0) + payment.amount;
+    
+    const { error: buyerUpdateError } = await supabase
+        .from('users')
+        .update({
+            wallet_balance: buyerNewWalletBalance,
+            blocked_balance: buyerNewBlockedBalance
+        })
+        .eq('id', buyerId);
+    
+    if (buyerUpdateError) {
+        throw new Error(`خطا در بازگرداندن پول: ${buyerUpdateError.message}`);
+    }
+    
+    // Update payment status to cancelled
+    const { error: updateError } = await supabase
+        .from('secure_payments')
+        .update({
+            status: 'cancelled',
+            updated_at: new Date().toISOString(),
+            withdrawn_at: null,
+            locked_to_buyer_id: null
+        })
+        .eq('id', securePaymentId);
+    
+    if (updateError) {
+        // Rollback buyer's wallet
+        await supabase
+            .from('users')
+            .update({
+                wallet_balance: buyerData.wallet_balance,
+                blocked_balance: buyerData.blocked_balance
+            })
+            .eq('id', buyerId);
+        throw new Error(`خطا در بروزرسانی وضعیت پرداخت: ${updateError.message}`);
+    }
+    
+    // Unlock SIM card
+    const { error: simUpdateError } = await supabase
+        .from('sim_cards')
+        .update({ reserved_by_secure_payment_id: null })
+        .eq('id', payment.sim_card_id);
+    
+    if (simUpdateError) {
+        console.error('خطا در جبران قفل شماره:', simUpdateError);
+    }
+    
+    // Create transaction for refund
+    await supabase.from('transactions').insert({
+        user_id: buyerId,
+        type: 'refund',
+        amount: payment.amount,
+        description: `بازگرداندن پول پرداخت امن لغو شده برای شماره ${payment.sim_number}`,
+        date: new Date().toISOString()
+    });
+};
+
+export const getSecurePayments = async (userId: string, role: 'buyer' | 'seller'): Promise<SecurePayment[]> => {
+    const { data, error } = await supabase
+        .from('secure_payments')
+        .select('*')
+        .eq(role === 'buyer' ? 'buyer_id' : 'seller_id', userId)
+        .order('created_at', { ascending: false });
+    
+    if (error) {
+        throw new Error(error.message);
+    }
+    
+    return data as SecurePayment[];
+};
+
+// --- Auto-cleanup functions ---
+
+export const deleteExpiredListings = async (): Promise<number> => {
+    // Get current date
+    const now = new Date();
+    // Calculate 1 month ago
+    const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const oneMonthAgoIso = oneMonthAgo.toISOString();
+    
+    // Get all sim cards that were created more than 1 month ago
+    const { data: expiredSims, error: fetchError } = await supabase
+        .from('sim_cards')
+        .select('id')
+        .lt('created_at', oneMonthAgoIso);
+    
+    if (fetchError) {
+        console.error('خطا در بررسی اعلامات منقضی شده:', fetchError);
+        return 0;
+    }
+    
+    if (!expiredSims || expiredSims.length === 0) {
+        return 0; // No expired listings
+    }
+    
+    const expiredIds = expiredSims.map(sim => sim.id);
+    
+    // Delete expired sim cards
+    const { error: deleteError } = await supabase
+        .from('sim_cards')
+        .delete()
+        .in('id', expiredIds);
+    
+    if (deleteError) {
+        console.error('خطا در حذف اعلامات منقضی شده:', deleteError);
+        return 0;
+    }
+    
+    return expiredIds.length;
+};
+
 // Export all functions as an object
 const api = {
     signup,
@@ -1672,6 +2257,14 @@ const api = {
     isAuctionPurchaseCompleted,
     completeAuctionPurchaseForWinner,
     getCommissions,
+    generateBuyerPaymentCode,
+    getBuyerPaymentCode,
+    createSecurePayment,
+    withdrawSecurePaymentFunds,
+    releaseSecurePayment,
+    cancelSecurePayment,
+    getSecurePayments,
+    deleteExpiredListings,
 };
 
 export default api;

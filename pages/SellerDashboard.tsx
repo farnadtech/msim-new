@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 // FIX: Upgrading react-router-dom from v5 to v6.
 import { NavLink, Route, Routes, useNavigate } from 'react-router-dom';
 import DashboardLayout from '../components/DashboardLayout';
+import SecurePaymentSection from '../components/SecurePaymentSection';
+import SecurePaymentsDisplay from '../components/SecurePaymentsDisplay';
 import { useAuth } from '../hooks/useAuth';
 import { useData } from '../hooks/useData';
 import { SimCard, Package, SimCardTypeOption } from '../types';
@@ -806,6 +808,18 @@ const NavItem: React.FC<{ to: string, children: React.ReactNode, end?: boolean }
     </NavLink>
 );
 
+const SecurePaymentPage = ({ userId }: { userId: string }) => {
+    const { simCards } = useData();
+    const userSimCards = simCards.filter(s => s.seller_id === userId);
+    
+    return (
+        <div>
+            <SecurePaymentSection sellerSimCards={userSimCards} sellerRole="seller" />
+            <SecurePaymentsDisplay userId={userId} role="seller" />
+        </div>
+    );
+};
+
 const SellerDashboard: React.FC = () => {
     const { user, refreshUser, loading } = useAuth();
     const { addSimCard, processTransaction, updateUserPackage } = useData();
@@ -890,6 +904,7 @@ const SellerDashboard: React.FC = () => {
                 <NavItem to="add-sim">ثبت سیمکارت جدید</NavItem>
                 <NavItem to="wallet">کیف پول</NavItem>
                 <NavItem to="packages">خرید پکیج</NavItem>
+                <NavItem to="secure-payments">🔒 پرداخت امن</NavItem>
             </nav>
         </div>
     );
@@ -902,6 +917,9 @@ const SellerDashboard: React.FC = () => {
                 <Route path="wallet" element={<SellerWallet onTransaction={handleWalletTransaction} />} />
                 <Route path="add-sim" element={<AddSimCard onAddSim={handleAddNewSim} />} />
                 <Route path="packages" element={<BuyPackage onBuyPackage={handleBuyPackage} />} />
+                <Route path="secure-payments" element={user ? (
+                    <SecurePaymentPage userId={user.id} />
+                ) : null} />
             </Routes>
         </DashboardLayout>
     );

@@ -17,6 +17,7 @@ import AdminPaymentReceipts from './pages/AdminPaymentReceipts';
 import ZarinPalCallbackPage from './pages/ZarinPalCallbackPage';
 import SimDetailsPage from './pages/SimDetailsPage';
 import { useAuth } from './hooks/useAuth';
+import { useAutoCleanup } from './hooks/useAutoCleanup';
 import Header from './components/Header';
 import Footer from './components/Footer';
 import RondNumbersPage from './pages/RondNumbersPage';
@@ -44,6 +45,8 @@ const PrivateRoute: React.FC<{ children: React.ReactElement; roles: string[] }> 
 const AppContent: React.FC = () => {
   // Add the auction processor hook
   useAuctionProcessor();
+  // Add the auto-cleanup hook for expired listings
+  useAutoCleanup();
   
   return (
       <HashRouter>

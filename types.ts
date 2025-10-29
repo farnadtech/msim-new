@@ -89,3 +89,27 @@ export interface Commission {
     date: string;
     created_at: string;
 }
+
+export interface SecurePayment {
+    id: number;
+    buyer_id: string;
+    buyer_name: string;
+    seller_id: string;
+    seller_name: string;
+    sim_card_id: number;
+    sim_number: string;
+    amount: number;
+    status: 'pending' | 'completed' | 'cancelled' | 'released';
+    buyer_code: string;
+    created_at: string;
+    updated_at: string;
+    completed_at?: string;
+    released_at?: string;
+}
+
+export interface BuyerPaymentCode {
+    id: number;
+    user_id: string;
+    payment_code: string;
+    created_at: string;
+}

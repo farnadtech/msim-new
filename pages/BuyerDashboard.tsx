@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 // FIX: Upgrading react-router-dom from v5 to v6.
+import React, { useState, useEffect } from 'react';
 import { NavLink, Route, Routes, Link } from 'react-router-dom';
 import DashboardLayout from '../components/DashboardLayout';
+import SecurePaymentsDisplay from '../components/SecurePaymentsDisplay';
+import BuyerPaymentCodeSection from '../components/BuyerPaymentCodeSection';
 import { useAuth } from '../hooks/useAuth';
 import { useData } from '../hooks/useData';
 import { useNotification } from '../contexts/NotificationContext';
 import api from '../services/api-supabase';
-// SimCard component is no longer used in MyBids
-// import SimCard from '../components/SimCard';
 
 const BuyerOverview = () => {
     const { user } = useAuth();
@@ -20,20 +21,23 @@ const BuyerOverview = () => {
     const myBids = simCards.filter(s => s.type === 'auction' && s.auction_details?.highest_bidder_id === user.id && s.status === 'available');
 
     return (
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
-            <h2 className="text-2xl font-bold mb-4">داشبورد خریدار</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-blue-100 dark:bg-blue-900 p-4 rounded-lg text-center">
-                    <p className="text-3xl font-bold text-blue-800 dark:text-blue-300">{purchasedSimCount}</p>
-                    <p className="text-blue-700 dark:text-blue-400">سیمکارت های خریداری شده</p>
-                </div>
-                <div className="bg-green-100 dark:bg-green-900 p-4 rounded-lg text-center">
-                    <p className="text-3xl font-bold text-green-800 dark:text-green-300">{myBids.length}</p>
-                    <p className="text-green-700 dark:text-green-400">پیشنهادات فعال در حراجی</p>
-                </div>
-                 <div className="bg-purple-100 dark:bg-purple-900 p-4 rounded-lg text-center">
-                    <p className="text-xl font-bold text-purple-800 dark:text-purple-300">{((user.wallet_balance || 0) + (user.blocked_balance || 0)).toLocaleString('fa-IR')}</p>
-                    <p className="text-purple-700 dark:text-purple-400">موجودی کل کیف پول (تومان)</p>
+        <div className="space-y-6">
+            <BuyerPaymentCodeSection userId={user.id} />
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
+                <h2 className="text-2xl font-bold mb-4">داشبورد خریدار</h2>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-blue-100 dark:bg-blue-900 p-4 rounded-lg text-center">
+                        <p className="text-3xl font-bold text-blue-800 dark:text-blue-300">{purchasedSimCount}</p>
+                        <p className="text-blue-700 dark:text-blue-400">سیمکارت های خریداری شده</p>
+                    </div>
+                    <div className="bg-green-100 dark:bg-green-900 p-4 rounded-lg text-center">
+                        <p className="text-3xl font-bold text-green-800 dark:text-green-300">{myBids.length}</p>
+                        <p className="text-green-700 dark:text-green-400">پیشنهادات فعال در حراجی</p>
+                    </div>
+                     <div className="bg-purple-100 dark:bg-purple-900 p-4 rounded-lg text-center">
+                        <p className="text-xl font-bold text-purple-800 dark:text-purple-300">{((user.wallet_balance || 0) + (user.blocked_balance || 0)).toLocaleString('fa-IR')}</p>
+                        <p className="text-purple-700 dark:text-purple-400">موجودی کل کیف پول (تومان)</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -454,6 +458,7 @@ const BuyerDashboard: React.FC = () => {
                 <NavItem to="purchases">خریدهای من</NavItem>
                 <NavItem to="bids">حراجی های من</NavItem>
                 <NavItem to="wallet">کیف پول</NavItem>
+                <NavItem to="secure-payments">🔒 پرداخت های امن</NavItem>
             </nav>
         </div>
     );
@@ -465,6 +470,11 @@ const BuyerDashboard: React.FC = () => {
                 <Route path="purchases" element={<MyPurchases />} />
                 <Route path="bids" element={<MyBids />} />
                 <Route path="wallet" element={<BuyerWallet onTransaction={handleWalletTransaction} />} />
+                <Route path="secure-payments" element={user ? (
+                    <div>
+                        <SecurePaymentsDisplay userId={user.id} role="buyer" />
+                    </div>
+                ) : null} />
             </Routes>
         </DashboardLayout>
     );
