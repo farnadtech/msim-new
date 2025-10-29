@@ -3,7 +3,6 @@ import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext-supabase';
 import { DataProvider } from './contexts/DataContext';
 import { NotificationProvider } from './contexts/NotificationContext';
-import { useAuth } from './hooks/useAuth';
 import { ThemeProvider } from './contexts/ThemeContext';
 import useAuctionProcessor from './hooks/useAuctionProcessor';
 
@@ -14,7 +13,10 @@ import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import AdminDashboard from './pages/AdminDashboard';
 import SellerDashboard from './pages/SellerDashboard';
 import BuyerDashboard from './pages/BuyerDashboard';
+import AdminPaymentReceipts from './pages/AdminPaymentReceipts';
+import ZarinPalCallbackPage from './pages/ZarinPalCallbackPage';
 import SimDetailsPage from './pages/SimDetailsPage';
+import { useAuth } from './hooks/useAuth';
 import Header from './components/Header';
 import Footer from './components/Footer';
 import RondNumbersPage from './pages/RondNumbersPage';
@@ -58,6 +60,7 @@ const AppContent: React.FC = () => {
               <Route path="/auctions" element={<AuctionsPage />} />
               <Route path="/packages" element={<PackagesPage />} />
               <Route path="/carrier/:carrierName" element={<CarrierSimsPage />} />
+              <Route path="/zarinpal/callback" element={<ZarinPalCallbackPage />} />
 
               <Route
                 path="/admin/*"

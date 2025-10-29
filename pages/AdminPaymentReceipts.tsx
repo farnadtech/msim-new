@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useData } from '../hooks/useData';
 import { useNotification } from '../contexts/NotificationContext';
 import api, { PaymentReceipt } from '../services/api-supabase';
+import paymentService from '../services/paymentService-supabase';
+import { supabase } from '../services/supabase';
 
 const AdminPaymentReceipts: React.FC = () => {
   const { users } = useData();
@@ -13,35 +15,8 @@ const AdminPaymentReceipts: React.FC = () => {
   useEffect(() => {
     const fetchReceipts = async () => {
       try {
-        // In a real implementation, you would fetch receipts from the database
-        // For now, we'll simulate with mock data
-        const mockReceipts: PaymentReceipt[] = [
-          {
-            id: '1',
-            user_id: 'user1',
-            user_name: 'احمد محمدی',
-            amount: 50000,
-            card_number: '6037991234567890',
-            tracking_code: 'TRK123456789',
-            receipt_image_url: 'https://example.com/receipt1.jpg',
-            status: 'pending',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          },
-          {
-            id: '2',
-            user_id: 'user2',
-            user_name: 'مریم رضوی',
-            amount: 100000,
-            card_number: '6104331234567890',
-            tracking_code: 'TRK987654321',
-            receipt_image_url: 'https://example.com/receipt2.jpg',
-            status: 'pending',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }
-        ];
-        setReceipts(mockReceipts);
+        const fetchedReceipts = await api.getAllPaymentReceipts();
+        setReceipts(fetchedReceipts);
       } catch (error) {
         showNotification('خطا در دریافت لیست رسیدها.', 'error');
       } finally {
@@ -55,22 +30,67 @@ const AdminPaymentReceipts: React.FC = () => {
   const handleApprove = async (receiptId: string) => {
     setProcessing(true);
     try {
-      // In a real implementation, you would:
-      // 1. Update the receipt status to 'approved'
-      // 2. Update the user's wallet balance
-      // 3. Add a transaction record
+      // Get the receipt to get user info and amount
+      const receipt = receipts.find(r => r.id === receiptId);
+      if (!receipt) {
+        throw new Error('رسید یافت نشد');
+      }
       
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Update the receipt status to 'approved'
+      console.log('Processing receipt approval:', { receiptId, status: 'approved' });
+      await paymentService.processPaymentReceipt(receiptId, 'approved', null);
+      
+      // Update user's wallet balance
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('wallet_balance')
+        .eq('id', receipt.user_id)
+        .single();
+      
+      if (userError) {
+        throw new Error(userError.message);
+      }
+      
+      const newBalance = (userData.wallet_balance || 0) + receipt.amount;
+      
+      const { error: updateUserError } = await supabase
+        .from('users')
+        .update({ 
+          wallet_balance: newBalance
+        })
+        .eq('id', receipt.user_id);
+      
+      if (updateUserError) {
+        console.error('Error updating user balance:', updateUserError);
+        throw new Error(updateUserError.message);
+      }
+      
+      // Add a transaction record
+      const transactionData = {
+        user_id: receipt.user_id,
+        type: 'deposit' as const,
+        amount: receipt.amount,
+        description: `شارژ کیف پول از طریق کارت به کارت - کد پیگیری: ${receipt.tracking_code}`,
+        date: new Date().toISOString()
+      };
+      
+      const { error: transactionError } = await supabase
+        .from('transactions')
+        .insert([transactionData]);
+      
+      if (transactionError) {
+        console.error('Error inserting transaction:', transactionError);
+        throw new Error(transactionError.message);
+      }
       
       // Update local state
       setReceipts(prev => prev.map(receipt => 
         receipt.id === receiptId ? {...receipt, status: 'approved'} : receipt
       ));
       
-      showNotification('رسید با موفقیت تایید شد.', 'success');
+      showNotification('رسید با موفقیت تایید شد و موجودی کاربر افزایش یافت.', 'success');
     } catch (error) {
-      showNotification('خطا در تایید رسید.', 'error');
+      showNotification(`خطا در تایید رسید: ${error instanceof Error ? error.message : 'خطای نامشخص'}`, 'error');
     } finally {
       setProcessing(false);
     }
@@ -79,11 +99,9 @@ const AdminPaymentReceipts: React.FC = () => {
   const handleReject = async (receiptId: string) => {
     setProcessing(true);
     try {
-      // In a real implementation, you would:
-      // 1. Update the receipt status to 'rejected'
-      
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Update the receipt status to 'rejected'
+      console.log('Processing receipt rejection:', { receiptId, status: 'rejected' });
+      await paymentService.processPaymentReceipt(receiptId, 'rejected', null);
       
       // Update local state
       setReceipts(prev => prev.map(receipt => 
@@ -92,7 +110,7 @@ const AdminPaymentReceipts: React.FC = () => {
       
       showNotification('رسید با موفقیت رد شد.', 'success');
     } catch (error) {
-      showNotification('خطا در رد رسید.', 'error');
+      showNotification(`خطا در رد رسید: ${error instanceof Error ? error.message : 'خطای نامشخص'}`, 'error');
     } finally {
       setProcessing(false);
     }
@@ -119,6 +137,7 @@ const AdminPaymentReceipts: React.FC = () => {
                 <th className="p-3">کد پیگیری</th>
                 <th className="p-3">تاریخ</th>
                 <th className="p-3">وضعیت</th>
+                <th className="p-3">رسید</th>
                 <th className="p-3">عملیات</th>
               </tr>
             </thead>
@@ -140,6 +159,18 @@ const AdminPaymentReceipts: React.FC = () => {
                        receipt.status === 'approved' ? 'تایید شده' :
                        'رد شده'}
                     </span>
+                  </td>
+                  <td className="p-3">
+                    {receipt.receipt_image_url ? (
+                      <button 
+                        onClick={() => window.open(receipt.receipt_image_url!, '_blank')}
+                        className="bg-blue-600 text-white px-3 py-1 rounded-md hover:bg-blue-700 text-sm"
+                      >
+                        مشاهده رسید
+                      </button>
+                    ) : (
+                      <span className="text-gray-500 text-sm">بدون تصویر</span>
+                    )}
                   </td>
                   <td className="p-3">
                     {receipt.status === 'pending' && (

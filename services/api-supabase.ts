@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { User, SimCard, Package, Transaction, Bid } from '../types';
+import { ZARINPAL_CONFIG } from '../config/zarinpal';
 
 // Function to remove undefined properties from an object
 const removeUndefinedProps = (obj: any) => {
@@ -194,6 +195,7 @@ export const addSimCard = async (simData: Omit<SimCard, 'id'>): Promise<string> 
         sold_date: simData.sold_date,
         carrier: simData.carrier,
         is_rond: simData.is_rond,
+        is_active: simData.is_active, // Include the new field
         inquiry_phone_number: simData.inquiry_phone_number
     };
 
@@ -215,7 +217,8 @@ export const addSimCard = async (simData: Omit<SimCard, 'id'>): Promise<string> 
                 type: simData.type,
                 status: 'available', // Always default to available
                 carrier: simData.carrier,
-                is_rond: simData.is_rond
+                is_rond: simData.is_rond,
+                is_active: simData.is_active // Include the new field
             };
             
             const { data: retryData, error: retryError } = await supabase
@@ -518,6 +521,7 @@ export const purchaseSim = async (simId: number, buyerId: string): Promise<void>
         // For non-auction purchases
         buyerNewBalance = buyerCurrentBalance - price;
     }
+    
     
     const { error: buyerUpdateError } = await supabase
         .from('users')
@@ -920,6 +924,233 @@ export const createPaymentReceipt = async (
   return data.id;
 };
 
+export const getPaymentReceiptByAuthority = async (authority: string): Promise<{ data?: PaymentReceipt; error?: Error }> => {
+  try {
+    const { data, error } = await supabase
+      .from('payment_receipts')
+      .select('*')
+      .eq('tracking_code', authority)
+      .single();
+
+    if (error) {
+      return { error: new Error(error.message) };
+    }
+
+    return { data: data as PaymentReceipt };
+  } catch (error) {
+    return { error: error as Error };
+  }
+};
+
+// Function to get all payment receipts for admin
+export const getAllPaymentReceipts = async (): Promise<PaymentReceipt[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('payment_receipts')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (error) {
+      throw new Error(error.message);
+    }
+    
+    return data as PaymentReceipt[];
+  } catch (error) {
+    console.error('Error fetching payment receipts:', error);
+    throw new Error('خطا در دریافت رسیدهای پرداخت.');
+  }
+};
+
+// ZarinPal payment functions
+interface ZarinPalPaymentResult {
+  paymentUrl: string;
+  authority: string;
+}
+
+interface ZarinPalRequestData {
+  merchant_id: string;
+  amount: number;
+  callback_url: string;
+  description: string;
+  metadata?: {
+    mobile?: string;
+    email?: string;
+  };
+}
+
+interface ZarinPalRequestResponse {
+  data: {
+    code: number;
+    message: string;
+    authority: string;
+    fee_type: string;
+    fee: number;
+  };
+}
+
+interface ZarinPalVerifyData {
+  merchant_id: string;
+  amount: number;
+  authority: string;
+}
+
+interface ZarinPalVerifyResponse {
+  data: {
+    code: number;
+    message: string;
+    card_hash: string;
+    card_pan: string;
+    ref_id: string;
+    fee_type: string;
+    fee: number;
+  };
+}
+
+export const createZarinPalPayment = async (
+  userId: string,
+  userName: string,
+  amount: number
+): Promise<ZarinPalPaymentResult> => {
+  try {
+    // Create a payment receipt first
+    const receiptId = await createPaymentReceipt({
+      user_id: userId,
+      user_name: userName,
+      amount: amount,
+      status: 'pending'
+    });
+
+    // Prepare data for ZarinPal API
+    const requestData: ZarinPalRequestData = {
+      merchant_id: ZARINPAL_CONFIG.MERCHANT_ID,
+      amount: amount,
+      callback_url: ZARINPAL_CONFIG.CALLBACK_URL,
+      description: `شارژ کیف پول کاربر ${userName}`,
+      metadata: {
+        // You can add user's mobile or email here if available
+      }
+    };
+
+    // In a real implementation, you would call ZarinPal API here
+    // For now, we'll simulate it with a mock URL
+    if (ZARINPAL_CONFIG.SANDBOX) {
+      console.log('ZarinPal request data:', requestData);
+    }
+
+    // Simulate API call delay
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // In a real implementation, you would get the authority from ZarinPal API response
+    const authority = `auth_${Date.now()}_${userId}`;
+    const paymentUrl = `${ZARINPAL_CONFIG.PAYMENT_GATEWAY_URL}${authority}`;
+
+    // Update the receipt with the authority code
+    const { error: updateError } = await supabase
+      .from('payment_receipts')
+      .update({ 
+        tracking_code: authority,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', receiptId);
+
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+
+    return { paymentUrl, authority };
+  } catch (error) {
+    console.error('Error in createZarinPalPayment:', error);
+    throw new Error('خطا در ایجاد پرداخت زرین‌پال');
+  }
+};
+
+export const verifyZarinPalPayment = async (
+  authority: string,
+  amount: number
+): Promise<{ success: boolean; refId?: string }> => {
+  try {
+    // Prepare data for ZarinPal verification API
+    const verifyData: ZarinPalVerifyData = {
+      merchant_id: ZARINPAL_CONFIG.MERCHANT_ID,
+      amount: amount,
+      authority: authority
+    };
+
+    // In a real implementation, you would call ZarinPal verification API here
+    // For now, we'll simulate a successful payment
+    if (ZARINPAL_CONFIG.SANDBOX) {
+      console.log('ZarinPal verify data:', verifyData);
+    }
+
+    // Simulate API call delay
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Simulate verification result (80% success rate)
+    const success = Math.random() > 0.2;
+    
+    // In a real implementation, you would get the refId from ZarinPal API response
+    const refId = success ? `ref_${Date.now()}` : undefined;
+
+    if (success) {
+      // Update the payment receipt status
+      const { error: updateError } = await supabase
+        .from('payment_receipts')
+        .update({ 
+          status: 'approved',
+          processed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('tracking_code', authority);
+
+      if (updateError) {
+        throw new Error(updateError.message);
+      }
+
+      // Get the receipt to get user info
+      const { data: receipt, error: receiptError } = await supabase
+        .from('payment_receipts')
+        .select('user_id')
+        .eq('tracking_code', authority)
+        .single();
+
+      if (receiptError) {
+        throw new Error(receiptError.message);
+      }
+
+      // Update user's wallet balance
+      const { error: userError } = await supabase
+        .from('users')
+        .update({ 
+          wallet_balance: supabase.rpc('wallet_balance + ?', [amount])
+        })
+        .eq('id', receipt.user_id);
+
+      if (userError) {
+        throw new Error(userError.message);
+      }
+    } else {
+      // Update the payment receipt status to rejected
+      const { error: updateError } = await supabase
+        .from('payment_receipts')
+        .update({ 
+          status: 'rejected',
+          processed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('tracking_code', authority);
+
+      if (updateError) {
+        throw new Error(updateError.message);
+      }
+    }
+
+    return { success, refId };
+  } catch (error) {
+    console.error('Error in verifyZarinPalPayment:', error);
+    throw new Error('خطا در تأیید پرداخت زرین‌پال');
+  }
+};
+
 export const uploadReceiptImage = async (
   file: File,
   userId: string
@@ -927,19 +1158,25 @@ export const uploadReceiptImage = async (
   const fileExt = file.name.split('.').pop();
   const fileName = `${userId}/${Date.now()}.${fileExt}`;
   
+  console.log('Attempting to upload file:', { fileName, fileType: file.type, fileSize: file.size });
+  
   const { data, error } = await supabase.storage
-    .from('payment-receipts')
+    .from('pic')
     .upload(fileName, file);
 
   if (error) {
-    throw new Error(error.message);
+    console.error('Supabase storage upload error:', error);
+    throw new Error(`Failed to upload receipt image: ${error.message}`);
   }
 
+  console.log('Upload successful:', data);
+  
   // Get the public URL for the uploaded file
   const { data: urlData } = supabase.storage
-    .from('payment-receipts')
+    .from('pic')
     .getPublicUrl(fileName);
 
+  console.log('Generated public URL:', urlData.publicUrl);
   return urlData.publicUrl;
 };
 
@@ -1315,6 +1552,10 @@ const api = {
     purchaseSim,
     placeBid,
     createPaymentReceipt,
+    getPaymentReceiptByAuthority,
+    getAllPaymentReceipts,
+    createZarinPalPayment,
+    verifyZarinPalPayment,
     uploadReceiptImage,
     completeAuctionPurchase,
     processEndedAuctions,

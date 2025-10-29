@@ -37,6 +37,7 @@ export interface SimCard {
     highest_bidder_id?: string;
     bids: Bid[];
   };
+  is_active?: boolean; // New field for active/inactive status
 }
 
 export interface Package {

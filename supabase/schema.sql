@@ -40,6 +40,7 @@ CREATE TABLE sim_cards (
   sold_date TIMESTAMP WITH TIME ZONE,
   carrier TEXT CHECK (carrier IN ('همراه اول', 'ایرانسل', 'رایتل')) NOT NULL,
   is_rond BOOLEAN NOT NULL DEFAULT false,
+  is_active BOOLEAN NOT NULL DEFAULT true,
   inquiry_phone_number TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -142,21 +143,21 @@ GRANT USAGE ON SEQUENCE transactions_id_seq TO anon, authenticated;
 
 -- Create storage bucket for payment receipts
 INSERT INTO storage.buckets (id, name, public) 
-VALUES ('payment-receipts', 'payment-receipts', true)
+VALUES ('pic', 'pic', true)
 ON CONFLICT (id) DO NOTHING;
 
 -- Set up storage policies
 CREATE POLICY "Users can upload receipts" 
 ON storage.objects FOR INSERT 
 TO authenticated 
-WITH CHECK (bucket_id = 'payment-receipts');
+WITH CHECK (bucket_id = 'pic');
 
 CREATE POLICY "Users can view their own receipts" 
 ON storage.objects FOR SELECT 
 TO authenticated 
-USING (bucket_id = 'payment-receipts' AND owner = auth.uid());
+USING (bucket_id = 'pic' AND owner = auth.uid());
 
 CREATE POLICY "Admins can view all receipts" 
 ON storage.objects FOR SELECT 
 TO authenticated 
-USING (bucket_id = 'payment-receipts' AND EXISTS(SELECT 1 FROM users WHERE id = auth.uid() AND role = 'admin'));
+USING (bucket_id = 'pic' AND EXISTS(SELECT 1 FROM users WHERE id = auth.uid() AND role = 'admin'));

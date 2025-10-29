@@ -122,16 +122,26 @@ export const getPendingPaymentReceipts = async (): Promise<PaymentReceipt[]> => 
 export const processPaymentReceipt = async (
   receiptId: string, 
   status: 'approved' | 'rejected', 
-  processedBy: string
+  processedBy: string | null = null
 ): Promise<void> => {
   try {
+    const updateData: any = {
+      status: status,
+      processed_at: new Date().toISOString()
+    };
+    
+    // Only add processed_by if it's provided and is a valid UUID
+    if (processedBy && processedBy.length > 0) {
+      // Validate that processedBy is a valid UUID format
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(processedBy)) {
+        updateData.processed_by = processedBy;
+      }
+    }
+    
     const { error } = await supabase
       .from('payment_receipts')
-      .update({
-        status: status,
-        processed_at: new Date().toISOString(),
-        processed_by: processedBy
-      })
+      .update(updateData)
       .eq('id', receiptId);
     
     if (error) {

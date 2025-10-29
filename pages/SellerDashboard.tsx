@@ -122,6 +122,7 @@ const MySimCards = () => {
                             <th className="p-3">قیمت/پیشنهاد</th>
                             <th className="p-3">نوع</th>
                             <th className="p-3">وضعیت</th>
+                            <th className="p-3">فعالیت</th>
                             <th className="p-3">عملیات</th>
                         </tr>
                     </thead>
@@ -136,7 +137,12 @@ const MySimCards = () => {
                                         {sim.status === 'available' ? 'موجود' : 'فروخته شده'}
                                     </span>
                                 </td>
-                                 <td className="p-3">
+                                <td className="p-3">
+                                    <span className={`px-2 py-1 text-xs rounded-full ${sim.is_active ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-800'}`}>
+                                        {sim.is_active ? 'فعال' : 'غیرفعال'}
+                                    </span>
+                                </td>
+                                <td className="p-3">
                                     {sim.status === 'available' && sim.type !== 'inquiry' && (
                                         <button onClick={() => handleEditClick(sim)} className="bg-yellow-500 text-white px-3 py-1 rounded-md hover:bg-yellow-600 text-sm">
                                             ویرایش
@@ -236,7 +242,8 @@ const SellerWallet = ({ onTransaction }: { onTransaction: (amount: number, type:
                             try {
                                 receiptImageUrl = await api.uploadReceiptImage(receiptImage, user!.id);
                             } catch (error) {
-                                showNotification('خطا در آپلود تصویر رسید.', 'error');
+                                console.error('Receipt image upload failed:', error);
+                                showNotification(`خطا در آپلود تصویر رسید: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
                                 setIsLoading(false);
                                 return;
                             }
@@ -263,9 +270,20 @@ const SellerWallet = ({ onTransaction }: { onTransaction: (amount: number, type:
                         setReceiptImage(null);
                     } else {
                         // For ZarinPal, redirect to payment gateway
-                        // In a real implementation, you would redirect to the selected payment method
-                        alert(`درگاه پرداخت: ${paymentMethod === 'zarinpal' ? 'زرین‌پال' : 'کارت به کارت'}\nمبلغ: ${numericAmount.toLocaleString('fa-IR')} تومان`);
-                        setModalOpen(false);
+                        try {
+                            const { paymentUrl } = await api.createZarinPalPayment(
+                                user!.id,
+                                user!.name,
+                                numericAmount
+                            );
+                            
+                            // Redirect to ZarinPal payment page
+                            window.location.href = paymentUrl;
+                        } catch (error) {
+                            showNotification('خطا در ایجاد پرداخت زرین‌پال.', 'error');
+                            setIsLoading(false);
+                            return;
+                        }
                     }
                 } else {
                     // For withdrawals, process normally
@@ -415,10 +433,10 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
         startingBid: '',
         endTime: '',
         inquiry_phone_number: '',
+        is_active: true, // New field with default value true
     });
     const [isLoading, setIsLoading] = useState(false);
     const ROND_FEE = 5000;
-
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value, type } = e.target;
@@ -471,6 +489,7 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
                 type: saleType,
                 carrier: simData.carrier as 'همراه اول' | 'ایرانسل' | 'رایتل',
                 is_rond: simData.is_rond,
+                is_active: simData.is_active, // Include the new field
                 inquiry_phone_number: undefined,
                 auction_details: {
                     end_time: new Date(simData.endTime).toISOString(),
@@ -487,6 +506,7 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
                 type: saleType,
                 carrier: simData.carrier as 'همراه اول' | 'ایرانسل' | 'رایتل',
                 is_rond: simData.is_rond,
+                is_active: simData.is_active, // Include the new field
                 inquiry_phone_number: saleType === 'inquiry' ? simData.inquiry_phone_number : undefined,
             };
         }
@@ -502,6 +522,7 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
                 startingBid: '',
                 endTime: '',
                 inquiry_phone_number: '',
+                is_active: true, // Reset to default value
             });
             setSaleType('fixed');
         } catch (err) {
@@ -616,6 +637,23 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
                                 با انتخاب این گزینه، مبلغ {ROND_FEE.toLocaleString('fa-IR')} تومان از کیف پول شما کسر خواهد شد.
                             </p>
                         )}
+                    </div>
+                    
+                    <div>
+                        <div className="flex items-center">
+                            <input 
+                                type="checkbox" 
+                                name="is_active" 
+                                id="is_active" 
+                                checked={simData.is_active} 
+                                onChange={handleChange} 
+                                className="w-5 h-5 ml-3 rounded"
+                            />
+                            <label htmlFor="is_active" className="font-medium">شماره فعال است</label>
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            در صورت عدم انتخاب، شماره به عنوان غیرفعال ثبت می‌شود.
+                        </p>
                     </div>
                 </fieldset>
                 

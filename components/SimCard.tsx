@@ -68,6 +68,22 @@ const SimCard: React.FC<SimCardProps> = ({ sim }) => {
     }
   };
   
+  const getStatusColor = (isActive: boolean | undefined) => {
+    if (isActive === undefined || isActive === true) {
+      return 'bg-green-100 text-green-800'; // Active
+    } else {
+      return 'bg-red-100 text-red-800'; // Inactive
+    }
+  };
+  
+  const getStatusText = (isActive: boolean | undefined) => {
+    if (isActive === undefined || isActive === true) {
+      return 'فعال';
+    } else {
+      return 'غیرفعال';
+    }
+  };
+  
   const getButtonInfo = () => {
       if (sim.status === 'sold') {
         return { text: 'فروخته شده', className: 'bg-gray-400 dark:bg-gray-600 cursor-not-allowed' };
@@ -99,11 +115,16 @@ const SimCard: React.FC<SimCardProps> = ({ sim }) => {
           <span className={`px-3 py-1 text-xs font-semibold rounded-full ${getCarrierColor(sim.carrier)}`}>
             {sim.carrier}
           </span>
-          {sim.is_rond && (
-            <span className="px-3 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
-              رند
+          <div className="flex space-x-2 space-x-reverse">
+            {sim.is_rond && (
+              <span className="px-3 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                رند
+              </span>
+            )}
+            <span className={`px-3 py-1 text-xs font-semibold rounded-full ${getStatusColor(sim.is_active)}`}>
+              {getStatusText(sim.is_active)}
             </span>
-          )}
+          </div>
         </div>
         <h3 className="text-2xl font-bold text-center tracking-widest text-gray-800 dark:text-gray-100 mb-4" style={{direction: 'ltr'}}>
           {sim.number.slice(0, 4)} - {sim.number.slice(4, 7)} - {sim.number.slice(7)}
