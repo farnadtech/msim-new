@@ -193,8 +193,8 @@ const SimDetailsPage: React.FC = () => {
             // We need to pass the document ID, not the numeric ID
             // For now, we'll use the numeric ID as a string, but this is the source of the bug
             await purchaseSim(sim.id, currentUser.id);
-            showNotification('خرید با موفقیت انجام شد!', 'success');
-            navigate('/buyer');
+            showNotification('خرید با موفقیت انجام شد! لطفا برای پیگیری سفارش خود به پنل خریدار مراجعه کنید.', 'success');
+            navigate('/buyer/orders');
         } catch (err) {
             if (err instanceof Error) showNotification(err.message, 'error');
             else showNotification('خطایی در هنگام خرید رخ داد.', 'error');

@@ -4,6 +4,8 @@ import { NavLink, Route, Routes, useNavigate } from 'react-router-dom';
 import DashboardLayout from '../components/DashboardLayout';
 import SecurePaymentSection from '../components/SecurePaymentSection';
 import SecurePaymentsDisplay from '../components/SecurePaymentsDisplay';
+import SellerInactiveOrdersPanel from '../components/SellerInactiveOrdersPanel';
+import SellerActiveOrdersPanel from '../components/SellerActiveOrdersPanel';
 import { useAuth } from '../hooks/useAuth';
 import { useData } from '../hooks/useData';
 import { SimCard, Package, SimCardTypeOption } from '../types';
@@ -904,6 +906,8 @@ const SellerDashboard: React.FC = () => {
                 <NavItem to="add-sim">ثبت سیمکارت جدید</NavItem>
                 <NavItem to="wallet">کیف پول</NavItem>
                 <NavItem to="packages">خرید پکیج</NavItem>
+                <NavItem to="inactive-orders">📱 خطوط صفر</NavItem>
+                <NavItem to="active-orders">📳 خطوط فعال</NavItem>
                 <NavItem to="secure-payments">🔒 پرداخت امن</NavItem>
                 <NavItem to="/notifications">🔔 اعلانات</NavItem>
             </nav>
@@ -920,6 +924,12 @@ const SellerDashboard: React.FC = () => {
                 <Route path="packages" element={<BuyPackage onBuyPackage={handleBuyPackage} />} />
                 <Route path="secure-payments" element={user ? (
                     <SecurePaymentPage userId={user.id} />
+                ) : null} />
+                <Route path="inactive-orders" element={user ? (
+                    <SellerInactiveOrdersPanel userId={user.id} />
+                ) : null} />
+                <Route path="active-orders" element={user ? (
+                    <SellerActiveOrdersPanel userId={user.id} />
                 ) : null} />
             </Routes>
         </DashboardLayout>

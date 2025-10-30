@@ -124,3 +124,71 @@ export interface Notification {
     created_at: string;
     updated_at: string;
 }
+
+// Multi-Stage Purchase Workflow Types
+export type LineType = 'inactive' | 'active';
+export type PurchaseOrderStatus = 'pending' | 'code_sent' | 'code_verified' | 'document_pending' | 'document_submitted' | 'document_rejected' | 'verified' | 'completed' | 'cancelled';
+
+export interface PurchaseOrder {
+    id: number;
+    sim_card_id: number;
+    buyer_id: string;
+    seller_id: string;
+    line_type: LineType;
+    status: PurchaseOrderStatus;
+    price: number;
+    commission_amount: number;
+    seller_received_amount: number;
+    buyer_blocked_amount: number;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface ActivationCode {
+    id: number;
+    purchase_order_id: number;
+    code: string;
+    phone_number: string;
+    sent_at: string;
+    verified_at?: string;
+    is_used: boolean;
+}
+
+export interface SellerDocument {
+    id: number;
+    purchase_order_id: number;
+    document_type: 'handwriting' | 'verification';
+    image_url: string;
+    uploaded_at: string;
+    status: 'pending' | 'approved' | 'rejected';
+}
+
+export interface AdminVerification {
+    id: number;
+    purchase_order_id: number;
+    admin_id: string;
+    document_id?: number;
+    verification_type: 'document' | 'final_approval';
+    status: 'approved' | 'rejected';
+    notes?: string;
+    verified_at: string;
+}
+
+export interface SupportMessage {
+    id: number;
+    purchase_order_id: number;
+    sender_id: string;
+    receiver_id: string;
+    message: string;
+    message_type: 'problem_report' | 'response';
+    read_at?: string;
+    created_at: string;
+}
+
+export interface TrackingCode {
+    id: number;
+    purchase_order_id: number;
+    code: string;
+    contact_phone: string;
+    created_at: string;
+}

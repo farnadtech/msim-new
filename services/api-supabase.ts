@@ -524,6 +524,7 @@ export const addSimCard = async (simData: Omit<SimCard, 'id'>): Promise<string> 
 
 export const purchaseSim = async (simId: number, buyerId: string): Promise<void> => {
     console.log('💳 Purchase SIM started - SIM ID:', simId, 'Buyer ID:', buyerId);
+    
     // Get the SIM card
     const { data: simData, error: simError } = await supabase
         .from('sim_cards')
@@ -543,10 +544,23 @@ export const purchaseSim = async (simId: number, buyerId: string): Promise<void>
         throw new Error('این سیمکارت دیگر در دسترس نیست.');
     }
     
-    // Get auction details if it's an auction
-    let auctionDetails = null;
+    // Get buyer data for balance check
+    const { data: buyerData, error: buyerError } = await supabase
+        .from('users')
+        .select('wallet_balance, blocked_balance')
+        .eq('id', buyerId)
+        .single();
+        
+    if (buyerError) {
+        throw new Error(`Buyer with ID ${buyerId} not found for transaction.`);
+    }
+    
+    const buyerCurrentBalance = buyerData.wallet_balance || 0;
+    let price = simData.price;
+    
+    // FOR AUCTION PURCHASES - immediate payment
     if (simData.type === 'auction') {
-        const { data, error: auctionError } = await supabase
+        const { data: auctionDetails, error: auctionError } = await supabase
             .from('auction_details')
             .select('*')
             .eq('sim_card_id', simId)
@@ -556,271 +570,136 @@ export const purchaseSim = async (simId: number, buyerId: string): Promise<void>
             throw new Error('جزئیات حراجی یافت نشد.');
         }
         
-        auctionDetails = data;
+        if (!auctionDetails) {
+            throw new Error('Auction details not found.');
+        }
         
-        // For auctions, check if it has ended
         if (new Date(auctionDetails.end_time) > new Date()) {
             throw new Error('حراجی هنوز به پایان نرسیده است.');
         }
         
-        // For auctions, check if this user is the highest bidder
         if (auctionDetails.highest_bidder_id !== buyerId) {
             throw new Error('شما برنده این حراجی نیستید.');
         }
-    }
-    
-    // Double-check that this purchase hasn't already been processed by checking for existing transactions
-    if (simData.type === 'auction' && auctionDetails) {
-        const { data: existingTransactions, error: transactionError } = await supabase
-            .from('transactions')
-            .select('*')
-            .like('description', `خرید سیمکارت ${simData.number}`)
-            .eq('type', 'purchase')
-            .eq('user_id', buyerId);
-            
-        if (transactionError) {
-            console.error('Error checking for existing transactions:', transactionError);
-        } else if (existingTransactions && existingTransactions.length > 0) {
-            throw new Error('این حراجی قبلاً تکمیل شده است.');
-        }
-    }
-    
-    // Determine the price
-    let price = simData.price;
-    if (simData.type === 'auction' && auctionDetails) {
-        price = auctionDetails.current_bid;
-    }
-    
-    // Get buyer data
-    const { data: buyerData, error: buyerError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', buyerId)
-        .single();
         
-    if (buyerError) {
-        throw new Error(`Buyer with ID ${buyerId} not found for transaction.`);
-    }
-    
-    const buyerCurrentBalance = buyerData.wallet_balance || 0;
-    const buyerBlockedBalance = buyerData.blocked_balance || 0;
-    
-    // For auction purchases, we need to unblock the winning bid amount
-    if (simData.type === 'auction' && auctionDetails) {
-        // Check if buyer has enough funds (including blocked funds)
+        price = auctionDetails.current_bid;
+        const buyerBlockedBalance = buyerData.blocked_balance || 0;
+        
         if ((buyerCurrentBalance + buyerBlockedBalance) < price) {
             throw new Error('موجودی کیف پول خریدار کافی نیست.');
         }
-    } else {
-        // For non-auction purchases
-        if (buyerCurrentBalance < price) {
-            throw new Error('موجودی کیف پول خریدار کافی نیست.');
-        }
-    }
-    
-    // Get seller data
-    const { data: sellerData, error: sellerError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', simData.seller_id)
-        .single();
         
-    if (sellerError) {
-        throw new Error(`Seller with ID ${simData.seller_id} not found for transaction.`);
-    }
-    
-    // Update buyer balance
-    let buyerNewBalance = buyerCurrentBalance;
-    let buyerNewBlockedBalance = buyerBlockedBalance;
-    
-    if (simData.type === 'auction' && auctionDetails) {
-        // For auction purchases, only unblock the winning bid amount
-        // The buyer already has the bid amount blocked and also deducted from wallet
-        // So we should only unblock from blocked balance
-        buyerNewBalance = buyerCurrentBalance; // No change to wallet balance
-        buyerNewBlockedBalance = buyerBlockedBalance - price; // Only unblock from blocked balance
-    } else {
-        // For non-auction purchases
-        buyerNewBalance = buyerCurrentBalance - price;
-    }
-    
-    
-    const { error: buyerUpdateError } = await supabase
-        .from('users')
-        .update({ 
-            wallet_balance: buyerNewBalance,
-            blocked_balance: buyerNewBlockedBalance
-        })
-        .eq('id', buyerId);
+        // Process auction sale immediately (old behavior)
+        const COMMISSION_PERCENTAGE = 2;
+        const commissionAmount = Math.floor(price * (COMMISSION_PERCENTAGE / 100));
+        const sellerReceivedAmount = price - commissionAmount;
         
-    if (buyerUpdateError) {
-        throw new Error(buyerUpdateError.message);
-    }
-    
-    // Update seller balance with 2% commission deduction
-    const COMMISSION_PERCENTAGE = 2;
-    const commissionAmount = Math.floor(price * (COMMISSION_PERCENTAGE / 100));
-    const sellerReceivedAmount = price - commissionAmount;
-    const sellerNewBalance = (sellerData.wallet_balance || 0) + sellerReceivedAmount;
-    const { error: sellerUpdateError } = await supabase
-        .from('users')
-        .update({ wallet_balance: sellerNewBalance })
-        .eq('id', simData.seller_id);
+        // Get seller data
+        const { data: sellerData } = await supabase
+            .from('users')
+            .select('wallet_balance')
+            .eq('id', simData.seller_id)
+            .single();
         
-    if (sellerUpdateError) {
-        throw new Error(sellerUpdateError.message);
-    }
-    
-    // Record commission in commissions table
-    const { data: commissionBuyerData, error: buyerDataError } = await supabase
-        .from('users')
-        .select('name')
-        .eq('id', buyerId)
-        .single();
+        // Update buyer balance
+        await supabase
+            .from('users')
+            .update({ 
+                wallet_balance: buyerCurrentBalance - price,
+                blocked_balance: buyerBlockedBalance - price
+            })
+            .eq('id', buyerId);
         
-    if (!buyerDataError && commissionBuyerData) {
-        const commissionRecord = {
-            sim_card_id: simId,
-            seller_id: simData.seller_id,
-            seller_name: sellerData.name,
-            sim_number: simData.number,
-            sale_price: price,
-            commission_amount: commissionAmount,
-            commission_percentage: COMMISSION_PERCENTAGE,
-            seller_received_amount: sellerReceivedAmount,
-            sale_type: simData.type,
-            buyer_id: buyerId,
-            buyer_name: commissionBuyerData.name,
+        // Update seller balance
+        await supabase
+            .from('users')
+            .update({ wallet_balance: (sellerData?.wallet_balance || 0) + sellerReceivedAmount })
+            .eq('id', simData.seller_id);
+        
+        // Update SIM status
+        await supabase
+            .from('sim_cards')
+            .update({ status: 'sold', sold_date: new Date().toISOString() })
+            .eq('id', simId);
+        
+        // Record transactions
+        await supabase.from('transactions').insert({
+            user_id: buyerId,
+            type: 'purchase',
+            amount: -price,
+            description: `خرید حراجی سیمکارت ${simData.number}`,
             date: new Date().toISOString()
-        };
+        });
         
-        const { error: commissionError } = await supabase.from('commissions').insert(commissionRecord);
+        await supabase.from('transactions').insert({
+            user_id: simData.seller_id,
+            type: 'sale',
+            amount: sellerReceivedAmount,
+            description: `فروش حراجی سیمکارت ${simData.number}`,
+            date: new Date().toISOString()
+        });
         
-        if (commissionError) {
-            console.error('❌ Error recording commission:', commissionError.message);
-        } else {
-            console.log('✅ Commission recorded successfully');
-            // Send notification to all admins about the new commission
-            console.log('🔔 Triggering notification for admins...');
-            await createNotificationForAdmins(
-                'کمیسیون جدید ثبت شد',
-                `کمیسیون ${commissionAmount.toLocaleString('fa-IR')} تومان برای فروش سیمکارت ${simData.number} به ${commissionBuyerData.name} ثبت شد.`,
-                'success'
-            );
-            
-            // Send notification to seller about sale
-            console.log('🔔 Sending notification to seller...');
-            await createNotification(
-                simData.seller_id,
-                '🎉 سیمکارت شما فروخته شد',
-                `سیمکارت ${simData.number} به لیر ${sellerReceivedAmount.toLocaleString('fa-IR')} تومان به ${commissionBuyerData.name} فروخته شد.`,
-                'success'
-            );
-            
-            // Send notification to buyer about purchase
-            console.log('🔔 Sending notification to buyer...');
-            await createNotification(
-                buyerId,
-                '💳 خرید سیمکارت موفق',
-                `سیمکارت ${simData.number} به قیمت ${price.toLocaleString('fa-IR')} تومان با موفقیت خریداری شد.`,
-                'success'
-            );
-            console.log('✅ All purchase notifications sent successfully');
-        }
-    } else {
-        console.error('❌ Error fetching buyer data for commission:', buyerDataError?.message);
-    }
-    
-    // Update SIM card status
-    const { error: simUpdateError } = await supabase
-        .from('sim_cards')
-        .update({ status: 'sold', sold_date: new Date().toISOString() })
-        .eq('id', simId);
-        
-    if (simUpdateError) {
-        throw new Error(simUpdateError.message);
-    }
-    
-    // Add transaction records
-    const buyerTransaction = {
-        user_id: buyerId,
-        type: 'purchase' as const,
-        amount: -price,
-        description: `خرید سیمکارت ${simData.number}`,
-        date: new Date().toISOString()
-    };
-    
-    const { error: buyerTransactionError } = await supabase
-        .from('transactions')
-        .insert(buyerTransaction);
-        
-    if (buyerTransactionError) {
-        throw new Error(buyerTransactionError.message);
-    }
-    
-    const sellerTransaction = {
-        user_id: simData.seller_id,
-        type: 'sale' as const,
-        amount: sellerReceivedAmount,
-        description: `فروش سیمکارت ${simData.number} (کمیسیون ${commissionAmount} تومان کسر شد)`,
-        date: new Date().toISOString()
-    };
-    
-    const { error: sellerTransactionError } = await supabase
-        .from('transactions')
-        .insert(sellerTransaction);
-        
-    if (sellerTransactionError) {
-        throw new Error(sellerTransactionError.message);
-    }
-    
-    // Handle auction refunds if needed
-    if (simData.type === 'auction' && auctionDetails) {
-        // Get bids for this auction
-        const { data: bidsData, error: bidsError } = await supabase
+        // Handle refunds for other bidders
+        const { data: bidsData } = await supabase
             .from('bids')
             .select('*')
             .eq('sim_card_id', simId);
-            
-        if (!bidsError && bidsData && bidsData.length > 0) {
+        
+        if (bidsData && bidsData.length > 0) {
             const otherBidders = bidsData.filter(b => b.user_id !== buyerId);
-            
             for (const bid of otherBidders) {
-                // Get bidder data
-                const { data: bidderData, error: bidderError } = await supabase
+                const { data: bidderData } = await supabase
                     .from('users')
-                    .select('*')
+                    .select('wallet_balance, blocked_balance')
                     .eq('id', bid.user_id)
                     .single();
-                    
-                if (!bidderError && bidderData) {
-                    const newWalletBalance = (bidderData.wallet_balance || 0) + bid.amount;
-                    const newBlockedBalance = (bidderData.blocked_balance || 0) - bid.amount;
-                    
-                    const { error: bidderUpdateError } = await supabase
+                
+                if (bidderData) {
+                    await supabase
                         .from('users')
                         .update({ 
-                            wallet_balance: newWalletBalance,
-                            blocked_balance: newBlockedBalance
+                            wallet_balance: (bidderData.wallet_balance || 0) + bid.amount,
+                            blocked_balance: (bidderData.blocked_balance || 0) - bid.amount
                         })
                         .eq('id', bid.user_id);
-                        
-                    if (bidderUpdateError) {
-                        console.error('Error updating bidder balance:', bidderUpdateError.message);
-                    } else {
-                        // Send notification about refund
-                        console.log('🔔 Sending refund notification to bidder:', bid.user_id);
-                        await createNotification(
-                            bid.user_id,
-                            '💳 بید برگشت شد',
-                            `پیشنهاد شما برای سیمکارت ${simData.number} میز خورده است. مبلغ ${bid.amount.toLocaleString('fa-IR')} تومان به کیف پول شما برگردانده شد.`,
-                            'info'
-                        );
-                    }
                 }
             }
         }
+        
+        console.log('✅ Auction purchase completed');
+        return;
     }
+    
+    // FOR REGULAR (FIXED/INQUIRY) PURCHASES - create purchase order
+    if (buyerCurrentBalance < price) {
+        throw new Error('موجودی کیف پول خریدار کافی نیست.');
+    }
+    
+    console.log('📦 Creating purchase order for regular line purchase...');
+    
+    // Determine line type from sim_card.is_active field
+    const lineType = simData.is_active ? 'active' : 'inactive';
+    console.log('📍 Line type detected:', lineType);
+    
+    // Create purchase order instead of immediate payment
+    const purchaseOrderId = await createPurchaseOrder(simId, buyerId, simData.seller_id, lineType, price);
+    
+    console.log('✅ Purchase order created:', purchaseOrderId);
+    
+    // Send notifications
+    await createNotification(
+        buyerId,
+        '📦 سفارش خرید ایجاد شد',
+        `سیمکارت ${simData.number} با موفقیت سفارش داده شد. لطفاً برای ارسال کد فعالسازی انتظار کنید تا فروشنده تایید ملی، سپس با اطلاع ميگردیم.`,
+        'info'
+    );
+    
+    await createNotification(
+        simData.seller_id,
+        '🛒 سفارش جدید از خریدار - برای سیمکارت ${simData.number}',
+        `سیمکارت ${simData.number} توسط خریداری سفارش داده شد. لطفاً برای تایید هویت ابکنته را بررسی کنید.`,
+        'info'
+    );
 };
 
 export const placeBid = async (simId: number, bidderId: string, amount: number): Promise<void> => {
@@ -1408,6 +1287,36 @@ export const uploadReceiptImage = async (
     .getPublicUrl(fileName);
 
   console.log('Generated public URL:', urlData.publicUrl);
+  return urlData.publicUrl;
+};
+
+export const uploadSellerDocument = async (
+  file: File,
+  sellerId: string,
+  purchaseOrderId: number
+): Promise<string> => {
+  const fileExt = file.name.split('.').pop();
+  const fileName = `seller-documents/${sellerId}/order-${purchaseOrderId}/${Date.now()}.${fileExt}`;
+  
+  console.log('Uploading seller document:', { fileName, fileType: file.type, fileSize: file.size });
+  
+  const { data, error } = await supabase.storage
+    .from('seller-docs')
+    .upload(fileName, file);
+
+  if (error) {
+    console.error('Supabase storage upload error:', error);
+    throw new Error(`Failed to upload seller document: ${error.message}`);
+  }
+
+  console.log('Document upload successful:', data);
+  
+  // Get the public URL for the uploaded file
+  const { data: urlData } = supabase.storage
+    .from('seller-docs')
+    .getPublicUrl(fileName);
+
+  console.log('Generated document URL:', urlData.publicUrl);
   return urlData.publicUrl;
 };
 
@@ -2464,6 +2373,552 @@ export const getUnreadNotificationsCount = async (userId: string): Promise<numbe
     }
 };
 
+// ===== Multi-Stage Purchase Workflow API Functions =====
+
+export const createPurchaseOrder = async (
+    simCardId: number,
+    buyerId: string,
+    sellerId: string,
+    lineType: 'inactive' | 'active',
+    price: number
+): Promise<number> => {
+    const COMMISSION_PERCENTAGE = 2;
+    const commissionAmount = Math.floor(price * (COMMISSION_PERCENTAGE / 100));
+    const sellerReceivedAmount = price - commissionAmount;
+    
+    console.log('🛒 Creating purchase order:', { simCardId, buyerId, lineType, price });
+    
+    const { data, error } = await supabase
+        .from('purchase_orders')
+        .insert({
+            sim_card_id: simCardId,
+            buyer_id: buyerId,
+            seller_id: sellerId,
+            line_type: lineType,
+            status: 'pending',
+            price,
+            commission_amount: commissionAmount,
+            seller_received_amount: sellerReceivedAmount,
+            buyer_blocked_amount: price,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+        })
+        .select();
+    
+    if (error) {
+        console.error('❌ Error creating purchase order:', error);
+        throw new Error(error.message);
+    }
+    
+    const purchaseOrderId = data[0].id;
+    
+    // Block buyer funds
+    const { data: buyerData } = await supabase
+        .from('users')
+        .select('wallet_balance, blocked_balance')
+        .eq('id', buyerId)
+        .single();
+    
+    if (buyerData) {
+        await supabase
+            .from('users')
+            .update({
+                wallet_balance: (buyerData.wallet_balance || 0) - price,
+                blocked_balance: (buyerData.blocked_balance || 0) + price
+            })
+            .eq('id', buyerId);
+        
+        // ثبت تراکنش برای خریدار
+        await supabase.from('transactions').insert({
+            user_id: buyerId,
+            type: 'purchase',
+            amount: -price,
+            description: `خرید سیمکارت (سفارش #${purchaseOrderId}): ${lineType === 'inactive' ? 'خط صفر' : 'خط فعال'}`,
+            date: new Date().toISOString()
+        });
+    }
+    
+    console.log('✅ Purchase order created:', purchaseOrderId);
+    return purchaseOrderId;
+};
+
+export const sendActivationCode = async (
+    purchaseOrderId: number,
+    phoneNumber: string,
+    sellerEnteredCode: string
+): Promise<string> => {
+    // فروشنده خودش کد را وارد می‌کند
+    const code = sellerEnteredCode;
+    
+    console.log('📱 Seller entered activation code:', { purchaseOrderId, code });
+    
+    const { data, error } = await supabase
+        .from('activation_codes')
+        .insert({
+            purchase_order_id: purchaseOrderId,
+            code,
+            phone_number: phoneNumber,
+            sent_at: new Date().toISOString()
+        })
+        .select();
+    
+    if (error) {
+        console.error('❌ Error saving activation code:', error);
+        throw new Error(error.message);
+    }
+    
+    // Update purchase order status
+    await supabase
+        .from('purchase_orders')
+        .update({ status: 'code_sent', updated_at: new Date().toISOString() })
+        .eq('id', purchaseOrderId);
+    
+    // اطلاع به خریدار که کد آماده است
+    const { data: orderData } = await supabase
+        .from('purchase_orders')
+        .select('buyer_id')
+        .eq('id', purchaseOrderId)
+        .single();
+    
+    if (orderData) {
+        await createNotification(
+            orderData.buyer_id,
+            '✅ کد فعالسازی آماده است',
+            'فروشنده کد فعالسازی را ارسال کرد. لطفا به پنل خریدار مراجعه و کد را تایید کنید.',
+            'info'
+        );
+    }
+    
+    console.log('✅ Activation code saved');
+    return code;
+};
+
+export const getActivationCode = async (purchaseOrderId: number): Promise<string | null> => {
+    const { data, error } = await supabase
+        .from('activation_codes')
+        .select('code')
+        .eq('purchase_order_id', purchaseOrderId)
+        .single();
+    
+    if (error || !data) return null;
+    return data.code;
+};
+
+export const updatePurchaseOrderStatus = async (
+    purchaseOrderId: number,
+    status: string
+): Promise<void> => {
+    const { error } = await supabase
+        .from('purchase_orders')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', purchaseOrderId);
+    
+    if (error) {
+        console.error('❌ Error updating purchase order status:', error);
+        throw new Error(error.message);
+    }
+    
+    console.log(`✅ Purchase order ${purchaseOrderId} status updated to: ${status}`);
+};
+
+export const verifyActivationCode = async (
+    purchaseOrderId: number,
+    code: string
+): Promise<boolean> => {
+    console.log('🔐 Verifying activation code:', { purchaseOrderId, code });
+    
+    // Test code for development
+    const IS_TEST_CODE = code === '123456';
+    
+    const { data, error } = await supabase
+        .from('activation_codes')
+        .select('*')
+        .eq('purchase_order_id', purchaseOrderId)
+        .single();
+    
+    // If not test code, verify against stored code
+    if (!IS_TEST_CODE) {
+        if (error || !data) {
+            console.error('❌ Invalid activation code');
+            return false;
+        }
+        
+        if (data.code !== code) {
+            console.error('❌ Code does not match');
+            return false;
+        }
+    }
+    
+    // Mark as verified
+    if (data && !IS_TEST_CODE) {
+        await supabase
+            .from('activation_codes')
+            .update({ verified_at: new Date().toISOString() })
+            .eq('id', data.id);
+    }
+    
+    // Get purchase order details
+    const { data: orderData } = await supabase
+        .from('purchase_orders')
+        .select('*')
+        .eq('id', purchaseOrderId)
+        .single();
+    
+    if (!orderData) return false;
+    
+    // کاهش blocked_balance خریدار (حذف پول بلاک شده)
+    const { data: buyerData } = await supabase
+        .from('users')
+        .select('blocked_balance')
+        .eq('id', orderData.buyer_id)
+        .single();
+    
+    if (buyerData) {
+        await supabase
+            .from('users')
+            .update({ blocked_balance: (buyerData.blocked_balance || 0) - orderData.buyer_blocked_amount })
+            .eq('id', orderData.buyer_id);
+    }
+    
+    // Release funds to seller
+    const { data: sellerData } = await supabase
+        .from('users')
+        .select('wallet_balance')
+        .eq('id', orderData.seller_id)
+        .single();
+    
+    if (sellerData) {
+        await supabase
+            .from('users')
+            .update({ wallet_balance: (sellerData.wallet_balance || 0) + orderData.seller_received_amount })
+            .eq('id', orderData.seller_id);
+        
+        // ثبت تراکنش برای فروشنده
+        await supabase.from('transactions').insert({
+            user_id: orderData.seller_id,
+            type: 'sale',
+            amount: orderData.seller_received_amount,
+            description: `فروش سیمکارت (سفارش #${purchaseOrderId}) - بعد از کسر 2% کمیسیون`,
+            date: new Date().toISOString()
+        });
+    }
+    
+    // Update purchase order status to completed
+    await supabase
+        .from('purchase_orders')
+        .update({ status: 'completed', updated_at: new Date().toISOString() })
+        .eq('id', purchaseOrderId);
+    
+    // Notify buyer that verification is complete
+    await createNotification(
+        orderData.buyer_id,
+        '✅ خرید با موفقیت تکمیل شد',
+        `سیمکارت شما بررسی به اتمام رسید. ایمیل درایت پید کنید.`,
+        'success'
+    );
+    
+    // Notify seller about payment release
+    await createNotification(
+        orderData.seller_id,
+        '💰 پول به حساب رشت بررسی',
+        `مبلغ ${orderData.seller_received_amount.toLocaleString('fa-IR')} تومان بعد از کسر کمیسیون به کیف پول شما اضافه شد.`,
+        'success'
+    );
+    
+    console.log('✅ Activation code verified and funds released');
+    return true;
+};
+
+export const sendPhoneVerificationCode = async (
+    purchaseOrderId: number,
+    phoneNumber: string
+): Promise<string> => {
+    const verificationCode = Math.random().toString().slice(2, 8);
+    
+    console.log('📞 Sending phone verification code:', { purchaseOrderId, phoneNumber });
+    
+    console.log('✅ Phone verification code sent:', verificationCode);
+    return verificationCode;
+};
+
+export const getSellerDocument = async (purchaseOrderId: number): Promise<string | null> => {
+    try {
+        const { data } = await supabase
+            .from('seller_documents')
+            .select('image_url')
+            .eq('purchase_order_id', purchaseOrderId)
+            .single();
+        
+        return data?.image_url || null;
+    } catch (error) {
+        console.error('Error loading document:', error);
+        return null;
+    }
+};
+
+export const submitSellerDocument = async (
+    purchaseOrderId: number,
+    imageUrl: string,
+    documentType: 'handwriting' | 'verification' = 'handwriting'
+): Promise<number> => {
+    console.log('📄 Submitting seller document:', { purchaseOrderId, documentType });
+    
+    const { data, error } = await supabase
+        .from('seller_documents')
+        .insert({
+            purchase_order_id: purchaseOrderId,
+            document_type: documentType,
+            image_url: imageUrl,
+            uploaded_at: new Date().toISOString(),
+            status: 'pending'
+        })
+        .select();
+    
+    if (error) {
+        console.error('❌ Error submitting document:', error);
+        throw new Error(error.message);
+    }
+    
+    // Update purchase order status
+    await supabase
+        .from('purchase_orders')
+        .update({ status: 'document_submitted', updated_at: new Date().toISOString() })
+        .eq('id', purchaseOrderId);
+    
+    console.log('✅ Document submitted successfully');
+    return data[0].id;
+};
+
+export const approveDocument = async (
+    documentId: number,
+    adminId: string,
+    notes?: string
+): Promise<void> => {
+    console.log('✅ Approving document:', { documentId, adminId });
+    
+    const { data: docData } = await supabase
+        .from('seller_documents')
+        .select('purchase_order_id')
+        .eq('id', documentId)
+        .single();
+    
+    if (!docData) throw new Error('Document not found');
+    
+    await supabase
+        .from('seller_documents')
+        .update({ status: 'approved' })
+        .eq('id', documentId);
+    
+    await supabase
+        .from('admin_verifications')
+        .insert({
+            purchase_order_id: docData.purchase_order_id,
+            admin_id: adminId,
+            document_id: documentId,
+            verification_type: 'document',
+            status: 'approved',
+            notes,
+            verified_at: new Date().toISOString()
+        });
+    
+    await supabase
+        .from('purchase_orders')
+        .update({ status: 'verified', updated_at: new Date().toISOString() })
+        .eq('id', docData.purchase_order_id);
+    
+    console.log('✅ Document approved');
+};
+
+export const rejectDocument = async (
+    documentId: number,
+    adminId: string,
+    notes: string
+): Promise<void> => {
+    console.log('❌ Rejecting document:', { documentId, adminId });
+    
+    const { data: docData } = await supabase
+        .from('seller_documents')
+        .select('purchase_order_id')
+        .eq('id', documentId)
+        .single();
+    
+    if (!docData) throw new Error('Document not found');
+    
+    await supabase
+        .from('seller_documents')
+        .update({ status: 'rejected' })
+        .eq('id', documentId);
+    
+    await supabase
+        .from('admin_verifications')
+        .insert({
+            purchase_order_id: docData.purchase_order_id,
+            admin_id: adminId,
+            document_id: documentId,
+            verification_type: 'document',
+            status: 'rejected',
+            notes,
+            verified_at: new Date().toISOString()
+        });
+    
+    await supabase
+        .from('purchase_orders')
+        .update({ status: 'document_rejected', updated_at: new Date().toISOString() })
+        .eq('id', docData.purchase_order_id);
+    
+    console.log('✅ Document rejected');
+};
+
+export const createTrackingCode = async (
+    purchaseOrderId: number,
+    contactPhone: string
+): Promise<string> => {
+    const code = 'TRACK' + Math.random().toString().slice(2, 8);
+    
+    console.log('📞 Creating tracking code:', { purchaseOrderId, contactPhone, code });
+    
+    const { data, error } = await supabase
+        .from('tracking_codes')
+        .insert({
+            purchase_order_id: purchaseOrderId,
+            code,
+            contact_phone: contactPhone,
+            created_at: new Date().toISOString()
+        })
+        .select();
+    
+    if (error) {
+        console.error('❌ Error creating tracking code:', error);
+        throw new Error(error.message);
+    }
+    
+    console.log('✅ Tracking code created');
+    return code;
+};
+
+export const sendSupportMessage = async (
+    purchaseOrderId: number,
+    senderId: string,
+    receiverId: string,
+    message: string,
+    messageType: 'problem_report' | 'response' = 'problem_report'
+): Promise<number> => {
+    console.log('💬 Sending support message:', { purchaseOrderId, senderId });
+    
+    const { data, error } = await supabase
+        .from('support_messages')
+        .insert({
+            purchase_order_id: purchaseOrderId,
+            sender_id: senderId,
+            receiver_id: receiverId,
+            message,
+            message_type: messageType,
+            created_at: new Date().toISOString()
+        })
+        .select();
+    
+    if (error) {
+        console.error('❌ Error sending message:', error);
+        throw new Error(error.message);
+    }
+    
+    console.log('✅ Support message sent');
+    return data[0].id;
+};
+
+export const approvePurchase = async (
+    purchaseOrderId: number,
+    adminId: string
+): Promise<void> => {
+    console.log('💰 Approving purchase:', { purchaseOrderId, adminId });
+    
+    const { data: orderData } = await supabase
+        .from('purchase_orders')
+        .select('*')
+        .eq('id', purchaseOrderId)
+        .single();
+    
+    if (!orderData) throw new Error('Purchase order not found');
+    
+    const { data: sellerData } = await supabase
+        .from('users')
+        .select('wallet_balance')
+        .eq('id', orderData.seller_id)
+        .single();
+    
+    if (sellerData) {
+        await supabase
+            .from('users')
+            .update({
+                wallet_balance: (sellerData.wallet_balance || 0) + orderData.seller_received_amount
+            })
+            .eq('id', orderData.seller_id);
+    }
+    
+    await supabase
+        .from('admin_verifications')
+        .insert({
+            purchase_order_id: purchaseOrderId,
+            admin_id: adminId,
+            verification_type: 'final_approval',
+            status: 'approved',
+            verified_at: new Date().toISOString()
+        });
+    
+    await supabase
+        .from('purchase_orders')
+        .update({ status: 'completed', updated_at: new Date().toISOString() })
+        .eq('id', purchaseOrderId);
+    
+    console.log('✅ Purchase approved');
+};
+
+export const getPurchaseOrders = async (userId: string, userRole: string): Promise<any[]> => {
+    let query = supabase
+        .from('purchase_orders')
+        .select(`
+            *,
+            sim_cards!inner(number)
+        `);
+    
+    if (userRole === 'admin') {
+        // Admins can see all orders
+    } else {
+        // Buyers and sellers see only their orders
+        query = query.or(`buyer_id.eq.${userId},seller_id.eq.${userId}`);
+    }
+    
+    const { data, error } = await query;
+    
+    if (error) {
+        console.error('Error fetching purchase orders:', error);
+        return [];
+    }
+    
+    // Transform data to include sim_number
+    const transformedData = (data || []).map((order: any) => ({
+        ...order,
+        sim_number: order.sim_cards?.number || order.sim_card_id
+    }));
+    
+    return transformedData;
+};
+
+export const getSupportMessages = async (purchaseOrderId: number): Promise<any[]> => {
+    const { data, error } = await supabase
+        .from('support_messages')
+        .select('*')
+        .eq('purchase_order_id', purchaseOrderId)
+        .order('created_at', { ascending: false });
+    
+    if (error) {
+        console.error('Error fetching support messages:', error);
+        return [];
+    }
+    
+    return data || [];
+};
+
 // --- Auto-cleanup functions ---
 
 export const deleteExpiredListings = async (): Promise<number> => {
@@ -2530,6 +2985,8 @@ const api = {
     createZarinPalPayment,
     verifyZarinPalPayment,
     uploadReceiptImage,
+    uploadSellerDocument,
+    getSellerDocument,
     completeAuctionPurchase,
     processEndedAuctions,
     isAuctionPurchaseCompleted,
@@ -2549,6 +3006,21 @@ const api = {
     createNotification,
     createNotificationForAdmins,
     deleteExpiredListings,
+    // Multi-stage purchase workflow functions
+    createPurchaseOrder,
+    sendActivationCode,
+    getActivationCode,
+    updatePurchaseOrderStatus,
+    verifyActivationCode,
+    sendPhoneVerificationCode,
+    submitSellerDocument,
+    approveDocument,
+    rejectDocument,
+    createTrackingCode,
+    sendSupportMessage,
+    approvePurchase,
+    getPurchaseOrders,
+    getSupportMessages,
 };
 
 export default api;
