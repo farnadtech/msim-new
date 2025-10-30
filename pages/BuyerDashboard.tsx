@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
-// FIX: Upgrading react-router-dom from v5 to v6.
-import React, { useState, useEffect } from 'react';
+import React from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink, Route, Routes, Link } from 'react-router-dom';
 import DashboardLayout from '../components/DashboardLayout';
 import SecurePaymentsDisplay from '../components/SecurePaymentsDisplay';
@@ -122,7 +121,18 @@ const MyBids = () => {
         s.type === 'auction' && 
         s.auction_details &&
         s.auction_details.bids.some(b => b.user_id === user.id)
-    );
+    ).sort((a, b) => {
+        // Check if auctions have ended
+        const aEnded = new Date(a.auction_details!.end_time) < new Date();
+        const bEnded = new Date(b.auction_details!.end_time) < new Date();
+        
+        // If one is ended and the other is not, show active ones first
+        if (aEnded && !bEnded) return 1;  // b comes first (active)
+        if (!aEnded && bEnded) return -1; // a comes first (active)
+        
+        // If both are ended or both are active, sort by end time (sooner first)
+        return new Date(a.auction_details!.end_time).getTime() - new Date(b.auction_details!.end_time).getTime();
+    });
 
     if (loading) return <div>در حال بارگذاری...</div>;
 
@@ -459,6 +469,7 @@ const BuyerDashboard: React.FC = () => {
                 <NavItem to="bids">حراجی های من</NavItem>
                 <NavItem to="wallet">کیف پول</NavItem>
                 <NavItem to="secure-payments">🔒 پرداخت های امن</NavItem>
+                <NavItem to="/notifications">🔔 اعلانات</NavItem>
             </nav>
         </div>
     );

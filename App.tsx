@@ -16,6 +16,7 @@ import BuyerDashboard from './pages/BuyerDashboard';
 import AdminPaymentReceipts from './pages/AdminPaymentReceipts';
 import ZarinPalCallbackPage from './pages/ZarinPalCallbackPage';
 import SimDetailsPage from './pages/SimDetailsPage';
+import NotificationsPage from './pages/NotificationsPage';
 import { useAuth } from './hooks/useAuth';
 import { useAutoCleanup } from './hooks/useAutoCleanup';
 import Header from './components/Header';
@@ -64,6 +65,7 @@ const AppContent: React.FC = () => {
               <Route path="/packages" element={<PackagesPage />} />
               <Route path="/carrier/:carrierName" element={<CarrierSimsPage />} />
               <Route path="/zarinpal/callback" element={<ZarinPalCallbackPage />} />
+              <Route path="/notifications" element={<NotificationsPage />} />
 
               <Route
                 path="/admin/*"

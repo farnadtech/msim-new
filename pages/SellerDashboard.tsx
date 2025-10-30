@@ -905,6 +905,7 @@ const SellerDashboard: React.FC = () => {
                 <NavItem to="wallet">کیف پول</NavItem>
                 <NavItem to="packages">خرید پکیج</NavItem>
                 <NavItem to="secure-payments">🔒 پرداخت امن</NavItem>
+                <NavItem to="/notifications">🔔 اعلانات</NavItem>
             </nav>
         </div>
     );

@@ -108,6 +108,78 @@ export const updateUserPackage = async (userId: string, packageId: number): Prom
     }
 };
 
+// --- Notifications ---
+
+export const createNotification = async (userId: string, title: string, message: string, type: 'info' | 'success' | 'error' | 'warning' = 'info'): Promise<void> => {
+    try {
+        console.log('📢 Creating notification for user:', userId, '|', title);
+        const { error } = await supabase
+            .from('notifications')
+            .insert({
+                user_id: userId,
+                title,
+                message,
+                type,
+                is_read: false,
+                created_at: new Date().toISOString()
+            });
+        
+        if (error) {
+            console.error('❌ Error creating notification:', error);
+        } else {
+            console.log('✅ Notification created successfully!');
+        }
+    } catch (err) {
+        console.error('❌ Exception creating notification:', err);
+    }
+};
+
+export const createNotificationForAdmins = async (title: string, message: string, type: 'info' | 'success' | 'error' | 'warning' = 'info'): Promise<void> => {
+    try {
+        console.log('📢 Creating admin notifications:', { title, message });
+        // Get all admin users
+        const { data: admins, error: adminError } = await supabase
+            .from('users')
+            .select('id')
+            .eq('role', 'admin');
+        
+        if (adminError) {
+            console.error('❌ Error fetching admins:', adminError);
+            return;
+        }
+        
+        if (!admins || admins.length === 0) {
+            console.warn('⚠️  No admin users found in database');
+            return;
+        }
+        
+        console.log('✅ Found', admins.length, 'admin(s)');
+        
+        // Create notification for each admin
+        const notifications = admins.map(admin => ({
+            user_id: admin.id,
+            title,
+            message,
+            type,
+            is_read: false,
+            created_at: new Date().toISOString()
+        }));
+        
+        console.log('📝 Inserting', notifications.length, 'notification(s)');
+        const { error: insertError } = await supabase
+            .from('notifications')
+            .insert(notifications);
+        
+        if (insertError) {
+            console.error('❌ Error creating admin notifications:', insertError);
+        } else {
+            console.log('✅ Admin notifications created successfully!');
+        }
+    } catch (err) {
+        console.error('❌ Exception creating admin notifications:', err);
+    }
+};
+
 // --- SIM Card Management ---
 
 export const getSimCards = async (): Promise<SimCard[]> => {
@@ -425,10 +497,33 @@ export const addSimCard = async (simData: Omit<SimCard, 'id'>): Promise<string> 
         }
     }
     
+    // Send notification to seller about successful listing
+    const sellerNotifTitle = simData.type === 'auction' 
+        ? '🔔 حراجی شما راهاندازی شد'
+        : '📑 سیمکارت شما راهاندازی شد';
+    const sellerNotifMsg = simData.type === 'auction'
+        ? `حراجی برای سیمکارت ${simData.number} با قیمت پایه ${simData.price?.toLocaleString('fa-IR')} تومان راهاندازی شده است.`
+        : `سیمکارت ${simData.number} به قیمت ${simData.price?.toLocaleString('fa-IR')} تومان راهاندازی شده است.`;
+    
+    await createNotification(
+        simData.seller_id,
+        sellerNotifTitle,
+        sellerNotifMsg,
+        'success'
+    );
+    
+    // Send notification to admins about new listing
+    await createNotificationForAdmins(
+        '📢 لیست جدید',
+        `سیمکارت جدید ${simData.number} جنس ${simData.type} راهاندازی شده است.`,
+        'info'
+    );
+    
     return simCardId.toString();
 };
 
 export const purchaseSim = async (simId: number, buyerId: string): Promise<void> => {
+    console.log('💳 Purchase SIM started - SIM ID:', simId, 'Buyer ID:', buyerId);
     // Get the SIM card
     const { data: simData, error: simError } = await supabase
         .from('sim_cards')
@@ -602,10 +697,38 @@ export const purchaseSim = async (simId: number, buyerId: string): Promise<void>
         const { error: commissionError } = await supabase.from('commissions').insert(commissionRecord);
         
         if (commissionError) {
-            console.error('Error recording commission:', commissionError.message);
+            console.error('❌ Error recording commission:', commissionError.message);
+        } else {
+            console.log('✅ Commission recorded successfully');
+            // Send notification to all admins about the new commission
+            console.log('🔔 Triggering notification for admins...');
+            await createNotificationForAdmins(
+                'کمیسیون جدید ثبت شد',
+                `کمیسیون ${commissionAmount.toLocaleString('fa-IR')} تومان برای فروش سیمکارت ${simData.number} به ${commissionBuyerData.name} ثبت شد.`,
+                'success'
+            );
+            
+            // Send notification to seller about sale
+            console.log('🔔 Sending notification to seller...');
+            await createNotification(
+                simData.seller_id,
+                '🎉 سیمکارت شما فروخته شد',
+                `سیمکارت ${simData.number} به لیر ${sellerReceivedAmount.toLocaleString('fa-IR')} تومان به ${commissionBuyerData.name} فروخته شد.`,
+                'success'
+            );
+            
+            // Send notification to buyer about purchase
+            console.log('🔔 Sending notification to buyer...');
+            await createNotification(
+                buyerId,
+                '💳 خرید سیمکارت موفق',
+                `سیمکارت ${simData.number} به قیمت ${price.toLocaleString('fa-IR')} تومان با موفقیت خریداری شد.`,
+                'success'
+            );
+            console.log('✅ All purchase notifications sent successfully');
         }
     } else {
-        console.error('Error fetching buyer data for commission:', buyerDataError?.message);
+        console.error('❌ Error fetching buyer data for commission:', buyerDataError?.message);
     }
     
     // Update SIM card status
@@ -684,6 +807,15 @@ export const purchaseSim = async (simId: number, buyerId: string): Promise<void>
                         
                     if (bidderUpdateError) {
                         console.error('Error updating bidder balance:', bidderUpdateError.message);
+                    } else {
+                        // Send notification about refund
+                        console.log('🔔 Sending refund notification to bidder:', bid.user_id);
+                        await createNotification(
+                            bid.user_id,
+                            '💳 بید برگشت شد',
+                            `پیشنهاد شما برای سیمکارت ${simData.number} میز خورده است. مبلغ ${bid.amount.toLocaleString('fa-IR')} تومان به کیف پول شما برگردانده شد.`,
+                            'info'
+                        );
                     }
                 }
             }
@@ -766,6 +898,14 @@ export const placeBid = async (simId: number, bidderId: string, amount: number):
                 
             if (prevBidderUpdateError) {
                 console.error('Error updating previous bidder balance:', prevBidderUpdateError.message);
+            } else {
+                // Send notification to outbid user
+                await createNotification(
+                    previousHighestBidderId,
+                    'بالاترین پیشنهاد شما',
+                    `سیمکارت ${simData.number} با پیشنهاد بیشتر متعلق شده است.`,
+                    'warning'
+                );
             }
         }
     }
@@ -811,6 +951,35 @@ export const placeBid = async (simId: number, bidderId: string, amount: number):
     if (auctionUpdateError) {
         throw new Error(auctionUpdateError.message);
     }
+    
+    // Get bidder name and sim seller info for notifications
+    const { data: bidderNameData } = await supabase
+        .from('users')
+        .select('name')
+        .eq('id', bidderId)
+        .single();
+    
+    const bidderName = bidderNameData?.name || 'بیدر';
+    
+    // Send notification to the SIM card seller about new bid
+    if (simData.seller_id) {
+        console.log('🔔 Sending bid notification to seller:', simData.seller_id);
+        await createNotification(
+            simData.seller_id,
+            '📢 پیشنهاد جدید برای حراجی شما',
+            `${bidderName} با مبلغ ${amount.toLocaleString('fa-IR')} تومان برای سیمکارت ${simData.number} یک پیشنهاد ثبت کرد.`,
+            'info'
+        );
+    }
+    
+    // Send notification to bidder confirming their bid
+    console.log('🔔 Sending bid confirmation to bidder:', bidderId);
+    await createNotification(
+        bidderId,
+        '🎉 پیشنهاد شما ثبت شد',
+        `پیشنهاد برای سیمکارت ${simData.number} به مبلغ ${amount.toLocaleString('fa-IR')} تومان با موفقیت ثبت شد.`,
+        'success'
+    );
 };
 
 export const updateSimCard = async (simId: number, updatedData: Partial<SimCard>): Promise<void> => {
@@ -1465,6 +1634,13 @@ export const completeAuctionPurchaseForWinner = async (simId: number, buyerId: s
         
         if (commissionError) {
             console.error('Error recording commission:', commissionError.message);
+        } else {
+            // Send notification to all admins about the new commission
+            await createNotificationForAdmins(
+                'کمیسیون جدید ثبت شد',
+                `کمیسیون ${commissionAmount.toLocaleString('fa-IR')} تومان برای فروش سیمکارت ${simData.number} به ${commissionBuyerData.name} ثبت شد.`,
+                'success'
+            );
         }
     } else {
         console.error('Error fetching buyer data for commission:', buyerDataError?.message);
@@ -2030,6 +2206,34 @@ export const releaseSecurePayment = async (
     
     if (commissionError) {
         console.error('خطا در ثبت کارمزد:', commissionError);
+    } else {
+        // Send notification to all admins about the new commission
+        try {
+            // Get all admin users
+            const { data: admins, error: adminError } = await supabase
+                .from('users')
+                .select('id')
+                .eq('role', 'admin');
+            
+            if (!adminError && admins && admins.length > 0) {
+                // Create notification for each admin
+                const notificationPromises = admins.map(admin => 
+                    supabase.from('notifications').insert({
+                        user_id: admin.id,
+                        title: 'کمیسیون جدید ثبت شد',
+                        message: `کمیسیون ${commissionAmount.toLocaleString('fa-IR')} تومان برای پرداخت امن شماره ${payment.sim_number} به ${buyerData.name} ثبت شد.`,
+                        type: 'info',
+                        is_read: false,
+                        created_at: new Date().toISOString()
+                    })
+                );
+                
+                // Execute all notification insertions
+                await Promise.all(notificationPromises);
+            }
+        } catch (notificationError) {
+            console.error('Error sending admin notifications:', notificationError);
+        }
     }
     
     // Update payment status to released
@@ -2186,6 +2390,80 @@ export const getSecurePayments = async (userId: string, role: 'buyer' | 'seller'
     return data as SecurePayment[];
 };
 
+// --- Notification Retrieval Functions ---
+
+export const getUserNotifications = async (userId: string): Promise<any[]> => {
+    try {
+        const { data, error } = await supabase
+            .from('notifications')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false });
+        
+        if (error) {
+            console.error('Error fetching notifications:', error);
+            return [];
+        }
+        
+        return data || [];
+    } catch (err) {
+        console.error('Exception fetching notifications:', err);
+        return [];
+    }
+};
+
+export const markNotificationAsRead = async (notificationId: number, userId: string): Promise<void> => {
+    try {
+        const { error } = await supabase
+            .from('notifications')
+            .update({ is_read: true, updated_at: new Date().toISOString() })
+            .eq('id', notificationId)
+            .eq('user_id', userId);
+        
+        if (error) {
+            console.error('Error marking notification as read:', error);
+        }
+    } catch (err) {
+        console.error('Exception marking notification as read:', err);
+    }
+};
+
+export const deleteNotification = async (notificationId: number, userId: string): Promise<void> => {
+    try {
+        const { error } = await supabase
+            .from('notifications')
+            .delete()
+            .eq('id', notificationId)
+            .eq('user_id', userId);
+        
+        if (error) {
+            console.error('Error deleting notification:', error);
+        }
+    } catch (err) {
+        console.error('Exception deleting notification:', err);
+    }
+};
+
+export const getUnreadNotificationsCount = async (userId: string): Promise<number> => {
+    try {
+        const { count, error } = await supabase
+            .from('notifications')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', userId)
+            .eq('is_read', false);
+        
+        if (error) {
+            console.error('Error fetching unread count:', error);
+            return 0;
+        }
+        
+        return count || 0;
+    } catch (err) {
+        console.error('Exception fetching unread count:', err);
+        return 0;
+    }
+};
+
 // --- Auto-cleanup functions ---
 
 export const deleteExpiredListings = async (): Promise<number> => {
@@ -2264,6 +2542,12 @@ const api = {
     releaseSecurePayment,
     cancelSecurePayment,
     getSecurePayments,
+    getUserNotifications,
+    markNotificationAsRead,
+    deleteNotification,
+    getUnreadNotificationsCount,
+    createNotification,
+    createNotificationForAdmins,
     deleteExpiredListings,
 };
 

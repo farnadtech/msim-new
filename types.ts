@@ -113,3 +113,14 @@ export interface BuyerPaymentCode {
     payment_code: string;
     created_at: string;
 }
+
+export interface Notification {
+    id: number;
+    user_id: string;
+    title: string;
+    message: string;
+    type: 'info' | 'success' | 'error' | 'warning';
+    is_read: boolean;
+    created_at: string;
+    updated_at: string;
+}

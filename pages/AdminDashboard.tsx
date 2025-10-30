@@ -470,6 +470,7 @@ const sidebar = (
       <NavItem to="packages">مدیریت پکیج ها</NavItem>
       <NavItem to="payment-receipts">رسیدهای پرداخت</NavItem>
       <NavItem to="commissions">گزارش کمیسیون‌ها</NavItem>
+      <NavItem to="/notifications">🔔 اعلانات</NavItem>
     </nav>
   </div>
 );
