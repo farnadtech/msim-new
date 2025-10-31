@@ -9,6 +9,7 @@ import api from '../services/api';
 import AdminPaymentReceipts from './AdminPaymentReceipts';
 import AdminCommissionsReport from './AdminCommissionsReport';
 import AdminVerificationPanel from './AdminVerificationPanel';
+import AdminActivationRequestsPanel from './AdminActivationRequestsPanel';
 
 const AdminSeedNotice: React.FC<{ onSeeded: () => void }> = ({ onSeeded }) => {
     const [isLoading, setIsLoading] = useState(false);
@@ -470,6 +471,7 @@ const sidebar = (
       <NavItem to="simcards">مدیریت سیمکارت ها</NavItem>
       <NavItem to="packages">مدیریت پکیج ها</NavItem>
       <NavItem to="verifications">📄 تایید مدارک</NavItem>
+      <NavItem to="activation-requests">🔐 درخواست‌های فعال‌سازی</NavItem>
       <NavItem to="payment-receipts">رسیدهای پرداخت</NavItem>
       <NavItem to="commissions">گزارش کمیسیون‌ها</NavItem>
       <NavItem to="/notifications">🔔 اعلانات</NavItem>
@@ -488,6 +490,7 @@ const AdminDashboard: React.FC = () => {
             <Route path="simcards" element={<ManageSimCards />} />
             <Route path="packages" element={<ManagePackages />} />
             <Route path="verifications" element={<AdminVerificationPanel />} />
+            <Route path="activation-requests" element={<AdminActivationRequestsPanel />} />
             <Route path="payment-receipts" element={<AdminPaymentReceipts />} />
             <Route path="commissions" element={<AdminCommissionsReport />} />
         </Routes>

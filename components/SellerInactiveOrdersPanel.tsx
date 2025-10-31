@@ -39,12 +39,29 @@ const SellerInactiveOrdersPanel: React.FC<SellerInactiveOrdersPanelProps> = ({ u
         }
 
         try {
-            await api.sendActivationCode(orderId, '09121234567', code);
+            console.log('📄 Looking for activation request for order:', orderId);
+            // Get the activation request for this order (seller's orders only)
+            const activationRequests = await api.getActivationRequests({ sellerId: userId });
+            console.log('📄 Seller activation requests:', activationRequests);
+            const request = activationRequests.find(r => r.purchase_order_id === orderId);
+            
+            if (!request) {
+                console.error('❌ No activation request found for order:', orderId);
+                showNotification('درخواست فعال‌سازی يافت نشد', 'error');
+                return;
+            }
+            
+            console.log('📄 Found activation request:', request);
+            await api.sendActivationCodeForZeroLine(request.id, code);
             showNotification('کد فعالسازی برای خریدار ارسال شد', 'success');
             setCodeInput({...codeInput, [orderId]: ''});
             loadOrders();
         } catch (error) {
-            showNotification('خطا در ارسال کد', 'error');
+            console.error('❌ Error sending code:', error);
+            showNotification(
+                error instanceof Error ? error.message : 'خطا در ارسال کد',
+                'error'
+            );
         }
     };
 

@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { User, SimCard, Package, Transaction, Bid, Commission, SecurePayment, BuyerPaymentCode } from '../types';
+import { User, SimCard, Package, Transaction, Bid, Commission, SecurePayment, BuyerPaymentCode, ActivationRequest } from '../types';
 import { ZARINPAL_CONFIG } from '../config/zarinpal';
 
 // Function to remove undefined properties from an object
@@ -183,10 +183,12 @@ export const createNotificationForAdmins = async (title: string, message: string
 // --- SIM Card Management ---
 
 export const getSimCards = async (): Promise<SimCard[]> => {
-    // First, get all sim cards
+    // Get all SIM cards (available and sold for display)
     const { data: simCards, error: simError } = await supabase
         .from('sim_cards')
-        .select('*');
+        .select('*')
+        .in('status', ['available', 'sold'])
+        .order('created_at', { ascending: false });  // Sort by newest first
         
     if (simError) {
         throw new Error(simError.message);
@@ -1301,7 +1303,7 @@ export const uploadSellerDocument = async (
   console.log('Uploading seller document:', { fileName, fileType: file.type, fileSize: file.size });
   
   const { data, error } = await supabase.storage
-    .from('seller-docs')
+    .from('pic')
     .upload(fileName, file);
 
   if (error) {
@@ -1313,7 +1315,7 @@ export const uploadSellerDocument = async (
   
   // Get the public URL for the uploaded file
   const { data: urlData } = supabase.storage
-    .from('seller-docs')
+    .from('pic')
     .getPublicUrl(fileName);
 
   console.log('Generated document URL:', urlData.publicUrl);
@@ -2388,6 +2390,12 @@ export const createPurchaseOrder = async (
     
     console.log('🛒 Creating purchase order:', { simCardId, buyerId, lineType, price });
     
+    // تغییر وضعیت SIM card به reserved تا دیگری نتواند بخرد
+    await supabase
+        .from('sim_cards')
+        .update({ status: 'reserved' })
+        .eq('id', simCardId);
+    
     const { data, error } = await supabase
         .from('purchase_orders')
         .insert({
@@ -2428,12 +2436,12 @@ export const createPurchaseOrder = async (
             })
             .eq('id', buyerId);
         
-        // ثبت تراکنش برای خریدار
+        // ثبت تراکنش برای خریدار - بلوک کردن پول
         await supabase.from('transactions').insert({
             user_id: buyerId,
-            type: 'purchase',
-            amount: -price,
-            description: `خرید سیمکارت (سفارش #${purchaseOrderId}): ${lineType === 'inactive' ? 'خط صفر' : 'خط فعال'}`,
+            type: 'debit_blocked',
+            amount: price,
+            description: `بلوک پول برای خرید سیمکارت (سفارش #${purchaseOrderId}): ${lineType === 'inactive' ? 'خط صفر' : 'خط فعال'}`,
             date: new Date().toISOString()
         });
     }
@@ -2643,15 +2651,31 @@ export const sendPhoneVerificationCode = async (
 
 export const getSellerDocument = async (purchaseOrderId: number): Promise<string | null> => {
     try {
-        const { data } = await supabase
+        console.log('Fetching document for order:', purchaseOrderId);
+        
+        // استفاده از query ساده‌تر
+        const { data, error } = await supabase
             .from('seller_documents')
             .select('image_url')
-            .eq('purchase_order_id', purchaseOrderId)
-            .single();
+            .eq('purchase_order_id', purchaseOrderId);
         
-        return data?.image_url || null;
+        console.log('Document query result for order', purchaseOrderId, ':', { data, error });
+        
+        if (error) {
+            console.error('Error loading document for order', purchaseOrderId, ':', error);
+            return null;
+        }
+        
+        // data یک آرایه است
+        if (data && data.length > 0) {
+            console.log('Document URL for order', purchaseOrderId, ':', data[0].image_url);
+            return data[0].image_url || null;
+        }
+        
+        console.log('No document found for order:', purchaseOrderId);
+        return null;
     } catch (error) {
-        console.error('Error loading document:', error);
+        console.error('Exception loading document for order', purchaseOrderId, ':', error);
         return null;
     }
 };
@@ -2661,7 +2685,7 @@ export const submitSellerDocument = async (
     imageUrl: string,
     documentType: 'handwriting' | 'verification' = 'handwriting'
 ): Promise<number> => {
-    console.log('📄 Submitting seller document:', { purchaseOrderId, documentType });
+    console.log('📄 Submitting seller document:', { purchaseOrderId, documentType, imageUrl });
     
     const { data, error } = await supabase
         .from('seller_documents')
@@ -2679,13 +2703,15 @@ export const submitSellerDocument = async (
         throw new Error(error.message);
     }
     
+    console.log('✅ Document submitted successfully, ID:', data[0].id);
+    
     // Update purchase order status
     await supabase
         .from('purchase_orders')
         .update({ status: 'document_submitted', updated_at: new Date().toISOString() })
         .eq('id', purchaseOrderId);
     
-    console.log('✅ Document submitted successfully');
+    console.log('✅ Purchase order status updated');
     return data[0].id;
 };
 
@@ -2822,6 +2848,26 @@ export const sendSupportMessage = async (
         throw new Error(error.message);
     }
     
+    // ارسال اعلان به گیرنده
+    let notificationTitle = '';
+    let notificationMessage = '';
+    
+    if (messageType === 'problem_report') {
+        notificationTitle = '📩 گزارش مشکل جدید';
+        notificationMessage = 'خریدار گزارش مشکلی ارسال کرده است';
+    } else {
+        // پیام ادمین - بررسی محتوای پیام برای تعیین نوع
+        if (message.includes('رد شده')) {
+            notificationTitle = '⚠️ مدارک شما رد شد';
+            notificationMessage = 'لطفاً مدارک را مجدد ارسال کنید';
+        } else {
+            notificationTitle = '✅ مدارک شما تایید شد';
+            notificationMessage = 'سفارش شما به مرحله بعدی رفت';
+        }
+    }
+    
+    await createNotification(receiverId, notificationTitle, notificationMessage, 'info');
+    
     console.log('✅ Support message sent');
     return data[0].id;
 };
@@ -2832,30 +2878,128 @@ export const approvePurchase = async (
 ): Promise<void> => {
     console.log('💰 Approving purchase:', { purchaseOrderId, adminId });
     
-    const { data: orderData } = await supabase
+    const { data: orderData, error: orderError } = await supabase
         .from('purchase_orders')
         .select('*')
         .eq('id', purchaseOrderId)
         .single();
     
-    if (!orderData) throw new Error('Purchase order not found');
+    if (orderError) {
+        console.error('❌ Error fetching order:', orderError);
+        throw new Error(orderError.message);
+    }
     
-    const { data: sellerData } = await supabase
+    if (!orderData) {
+        console.error('❌ Order not found:', purchaseOrderId);
+        throw new Error('Purchase order not found');
+    }
+    
+    console.log('📝 Order data:', orderData);
+    
+    // Update SIM card status to sold
+    const { error: simError } = await supabase
+        .from('sim_cards')
+        .update({ 
+            status: 'sold',
+            sold_date: new Date().toISOString()
+        })
+        .eq('id', orderData.sim_card_id);
+    
+    if (simError) {
+        console.error('❌ Error updating SIM card status:', simError);
+        throw new Error(simError.message);
+    }
+    
+    const { data: sellerData, error: sellerError } = await supabase
         .from('users')
         .select('wallet_balance')
         .eq('id', orderData.seller_id)
         .single();
     
-    if (sellerData) {
-        await supabase
-            .from('users')
-            .update({
-                wallet_balance: (sellerData.wallet_balance || 0) + orderData.seller_received_amount
-            })
-            .eq('id', orderData.seller_id);
+    if (sellerError) {
+        console.error('❌ Error fetching seller:', sellerError);
+        throw new Error(sellerError.message);
     }
     
-    await supabase
+    console.log('📝 Seller data:', sellerData);
+    
+    // باید blocked_balance خریدار را هم کم کنیم
+    const { data: buyerData, error: buyerError } = await supabase
+        .from('users')
+        .select('wallet_balance, blocked_balance')
+        .eq('id', orderData.buyer_id)
+        .single();
+    
+    if (buyerError) {
+        console.error('❌ Error fetching buyer:', buyerError);
+        throw new Error(buyerError.message);
+    }
+    
+    console.log('👤 Buyer data:', buyerData);
+    
+    // به روز رسانی فروشنده
+    if (sellerData) {
+        const newBalance = (sellerData.wallet_balance || 0) + orderData.seller_received_amount;
+        console.log('💰 Updating seller balance:', { 
+            old: sellerData.wallet_balance, 
+            new: newBalance,
+            amount: orderData.seller_received_amount
+        });
+        
+        const { error: updateError } = await supabase
+            .from('users')
+            .update({
+                wallet_balance: newBalance
+            })
+            .eq('id', orderData.seller_id);
+        
+        if (updateError) {
+            console.error('❌ Error updating seller balance:', updateError);
+            throw new Error(updateError.message);
+        }
+    }
+    
+    // به روز رسانی خریدار - blocked_balance را کم کنیم
+    if (buyerData) {
+        const newBlocked = (buyerData.blocked_balance || 0) - orderData.buyer_blocked_amount;
+        
+        console.log('💰 Updating buyer blocked balance:', { 
+            old: buyerData.blocked_balance, 
+            new: newBlocked,
+            deduction: orderData.buyer_blocked_amount
+        });
+        
+        const { error: updateError } = await supabase
+            .from('users')
+            .update({
+                blocked_balance: newBlocked
+            })
+            .eq('id', orderData.buyer_id);
+        
+        if (updateError) {
+            console.error('❌ Error updating buyer blocked balance:', updateError);
+            throw new Error(updateError.message);
+        }
+    }
+    
+    // Create transaction record for seller
+    const { error: sellerTxError } = await supabase
+        .from('transactions')
+        .insert({
+            user_id: orderData.seller_id,
+            type: 'credit',
+            amount: orderData.seller_received_amount,
+            description: `درآمد از فروش خط #${purchaseOrderId}`,
+            date: new Date().toISOString()
+        });
+    
+    if (sellerTxError) {
+        console.error('❌ Error creating seller transaction:', sellerTxError);
+        throw new Error(sellerTxError.message);
+    }
+    
+    // Create admin verification record
+    const { error: verificationError } = await supabase
         .from('admin_verifications')
         .insert({
             purchase_order_id: purchaseOrderId,
@@ -2865,15 +3009,28 @@ export const approvePurchase = async (
             verified_at: new Date().toISOString()
         });
     
-    await supabase
+    if (verificationError) {
+        console.error('❌ Error creating verification record:', verificationError);
+        throw new Error(verificationError.message);
+    }
+    
+    // Update purchase order status
+    const { error: statusError } = await supabase
         .from('purchase_orders')
         .update({ status: 'completed', updated_at: new Date().toISOString() })
         .eq('id', purchaseOrderId);
+    
+    if (statusError) {
+        console.error('❌ Error updating order status:', statusError);
+        throw new Error(statusError.message);
+    }
     
     console.log('✅ Purchase approved');
 };
 
 export const getPurchaseOrders = async (userId: string, userRole: string): Promise<any[]> => {
+    console.log('Fetching purchase orders:', { userId, userRole });
+    
     let query = supabase
         .from('purchase_orders')
         .select(`
@@ -2883,8 +3040,10 @@ export const getPurchaseOrders = async (userId: string, userRole: string): Promi
     
     if (userRole === 'admin') {
         // Admins can see all orders
+        console.log('Admin view - fetching all orders');
     } else {
         // Buyers and sellers see only their orders
+        console.log('User view - fetching user orders');
         query = query.or(`buyer_id.eq.${userId},seller_id.eq.${userId}`);
     }
     
@@ -2894,6 +3053,8 @@ export const getPurchaseOrders = async (userId: string, userRole: string): Promi
         console.error('Error fetching purchase orders:', error);
         return [];
     }
+    
+    console.log('Purchase orders fetched:', data?.length || 0);
     
     // Transform data to include sim_number
     const transformedData = (data || []).map((order: any) => ({
@@ -2921,27 +3082,379 @@ export const getSupportMessages = async (purchaseOrderId: number): Promise<any[]
 
 // --- Auto-cleanup functions ---
 
+// --- Activation Requests (Zero-Line SIM Activation) ---
+
+export const createActivationRequest = async (
+    purchaseOrderId: number,
+    simCardId: number,
+    buyerId: string,
+    sellerId: string,
+    simNumber: string,
+    buyerName: string,
+    sellerName: string
+): Promise<number> => {
+    console.log('📋 Creating activation request:', { purchaseOrderId, simCardId });
+    
+    const { data, error } = await supabase
+        .from('activation_requests')
+        .insert({
+            purchase_order_id: purchaseOrderId,
+            sim_card_id: simCardId,
+            buyer_id: buyerId,
+            seller_id: sellerId,
+            sim_number: simNumber,
+            buyer_name: buyerName,
+            seller_name: sellerName,
+            status: 'pending'
+        })
+        .select()
+        .single();
+    
+    if (error) {
+        console.error('❌ Error creating activation request:', error);
+        throw new Error(error.message);
+    }
+    
+    // Notify seller
+    await createNotification(
+        sellerId,
+        '📋 درخواست فعال‌سازی جدید',
+        `درخواست فعال‌سازی برای سیمکارت ${simNumber} برای ${buyerName} ایجاد شد.`,
+        'info'
+    );
+    
+    // Notify admins
+    await createNotificationForAdmins(
+        '📋 درخواست فعال‌سازی جدید',
+        `درخواست فعال‌سازی برای سیمکارت ${simNumber} ایجاد شد.`,
+        'info'
+    );
+    
+    return data.id;
+};
+
+export const getActivationRequests = async (filters?: { status?: string; buyerId?: string; sellerId?: string }): Promise<ActivationRequest[]> => {
+    let query = supabase
+        .from('activation_requests')
+        .select('*');
+    
+    if (filters?.status) {
+        query = query.eq('status', filters.status);
+    }
+    if (filters?.buyerId) {
+        query = query.eq('buyer_id', filters.buyerId);
+    }
+    if (filters?.sellerId) {
+        query = query.eq('seller_id', filters.sellerId);
+    }
+    
+    const { data, error } = await query.order('created_at', { ascending: false });
+    
+    if (error) {
+        console.error('❌ Error fetching activation requests:', error);
+        throw new Error(error.message);
+    }
+    
+    return (data as ActivationRequest[]) || [];
+};
+
+export const sendActivationCodeForZeroLine = async (
+    activationRequestId: number,
+    activationCode: string
+): Promise<void> => {
+    console.log('📤 Sending activation code:', { activationRequestId, activationCode });
+    
+    const { data: requestData, error: fetchError } = await supabase
+        .from('activation_requests')
+        .select('*')
+        .eq('id', activationRequestId)
+        .single();
+    
+    if (fetchError) {
+        console.error('❌ Fetch error:', fetchError);
+        throw new Error(`خطا در دریافت درخواست: ${fetchError.message}`);
+    }
+    
+    if (!requestData) {
+        throw new Error('درخواست فعال‌سازی یافت نشد');
+    }
+    
+    console.log('📤 Request data found:', requestData);
+    
+    const { error: updateError } = await supabase
+        .from('activation_requests')
+        .update({
+            activation_code: activationCode,
+            sent_at: new Date().toISOString()
+        })
+        .eq('id', activationRequestId);
+    
+    if (updateError) {
+        console.error('❌ Update error:', updateError);
+        throw new Error(`خطا در به‌روز رسانی کد: ${updateError.message}`);
+    }
+    
+    console.log('✅ Code updated successfully');
+    
+    // اطلاع دادن خریدار
+    await createNotification(
+        requestData.buyer_id,
+        '📝 کد فعال‌سازی دریافت شد',
+        `کد فعال‌سازی برای سیمکارت ${requestData.sim_number} توسط فروشنده ارسال شد.`,
+        'success'
+    );
+};
+
+export const approveActivationRequest = async (
+    activationRequestId: number,
+    adminId: string,
+    adminNotes?: string
+): Promise<void> => {
+    console.log('✅ Approving activation request:', activationRequestId);
+    
+    const { data: requestData, error: fetchError } = await supabase
+        .from('activation_requests')
+        .select('*')
+        .eq('id', activationRequestId)
+        .single();
+    
+    if (fetchError || !requestData) {
+        console.error('❌ Error fetching activation request:', fetchError);
+        throw new Error('درخواست فعال‌سازی یافت نشد');
+    }
+    
+    // Get purchase order details
+    const { data: orderData, error: orderError } = await supabase
+        .from('purchase_orders')
+        .select('*')
+        .eq('id', requestData.purchase_order_id)
+        .single();
+    
+    if (orderError || !orderData) {
+        console.error('❌ Error fetching purchase order:', orderError);
+        throw new Error('سفارش خرید يافت نشد');
+    }
+    
+    // Update activation request status
+    const { error: updateError } = await supabase
+        .from('activation_requests')
+        .update({
+            status: 'approved',
+            admin_id: adminId,
+            admin_notes: adminNotes,
+            verified_at: new Date().toISOString()
+        })
+        .eq('id', activationRequestId);
+    
+    if (updateError) {
+        console.error('❌ Error updating activation request:', updateError);
+        throw new Error(updateError.message);
+    }
+    
+    // Get buyer data to reduce blocked balance
+    const { data: buyerData, error: buyerFetchError } = await supabase
+        .from('users')
+        .select('blocked_balance, wallet_balance')
+        .eq('id', requestData.buyer_id)
+        .single();
+    
+    if (buyerFetchError || !buyerData) {
+        console.error('❌ Error fetching buyer data:', buyerFetchError);
+        throw new Error('اطلاعات خریدار يافت نشد');
+    }
+    
+    // Reduce buyer's blocked balance
+    const { error: buyerUpdateError } = await supabase
+        .from('users')
+        .update({
+            blocked_balance: Math.max(0, (buyerData.blocked_balance || 0) - orderData.buyer_blocked_amount)
+        })
+        .eq('id', requestData.buyer_id);
+    
+    if (buyerUpdateError) {
+        console.error('❌ Error updating buyer balance:', buyerUpdateError);
+        throw new Error('خطا در به‌روز رسانی موجودی خریدار');
+    }
+    
+    console.log('✅ Buyer blocked balance reduced:', orderData.buyer_blocked_amount);
+    
+    // Get seller data and release funds
+    const { data: sellerData, error: sellerFetchError } = await supabase
+        .from('users')
+        .select('wallet_balance')
+        .eq('id', requestData.seller_id)
+        .single();
+    
+    if (sellerFetchError || !sellerData) {
+        console.error('❌ Error fetching seller data:', sellerFetchError);
+        throw new Error('اطلاعات فروشنده يافت نشد');
+    }
+    
+    // Add funds to seller's wallet
+    const { error: sellerUpdateError } = await supabase
+        .from('users')
+        .update({
+            wallet_balance: (sellerData.wallet_balance || 0) + orderData.seller_received_amount
+        })
+        .eq('id', requestData.seller_id);
+    
+    if (sellerUpdateError) {
+        console.error('❌ Error updating seller balance:', sellerUpdateError);
+        throw new Error('خطا در به‌روز رسانی موجودی فروشنده');
+    }
+    
+    console.log('✅ Seller wallet balance increased:', orderData.seller_received_amount);
+    
+    // Update purchase order status
+    await supabase
+        .from('purchase_orders')
+        .update({ status: 'completed', updated_at: new Date().toISOString() })
+        .eq('id', requestData.purchase_order_id);
+    
+    // اطلاع دادن خریدار
+    await createNotification(
+        requestData.buyer_id,
+        '✅ فعال‌سازی تایید شد',
+        `درخواست فعال‌سازی سیمکارت ${requestData.sim_number} توسط ادمین تایید شد.`,
+        'success'
+    );
+    
+    // اطلاع دادن فروشنده
+    await createNotification(
+        requestData.seller_id,
+        '✅ فعال‌سازی تایید شد',
+        `درخواست فعال‌سازی سیمکارت ${requestData.sim_number} توسط ادمین تایید شد. مبلغ ${orderData.seller_received_amount.toLocaleString('fa-IR')} تومان به کیف پول شما اضافه شد.`,
+        'success'
+    );
+    
+    console.log('✅ Activation request approved successfully');
+};
+
+export const rejectActivationRequest = async (
+    activationRequestId: number,
+    adminId: string,
+    adminNotes?: string
+): Promise<void> => {
+    console.log('❌ Rejecting activation request:', activationRequestId);
+    
+    const { data: requestData, error: fetchError } = await supabase
+        .from('activation_requests')
+        .select('*')
+        .eq('id', activationRequestId)
+        .single();
+    
+    if (fetchError || !requestData) {
+        throw new Error('درخواست فعال‌سازی یافت نشد');
+    }
+    
+    // Get purchase order details to refund buyer
+    const { data: orderData } = await supabase
+        .from('purchase_orders')
+        .select('*')
+        .eq('id', requestData.purchase_order_id)
+        .single();
+    
+    const { error: updateError } = await supabase
+        .from('activation_requests')
+        .update({
+            status: 'rejected',
+            admin_id: adminId,
+            admin_notes: adminNotes,
+            verified_at: new Date().toISOString()
+        })
+        .eq('id', activationRequestId);
+    
+    if (updateError) {
+        throw new Error(updateError.message);
+    }
+    
+    // Refund buyer's blocked balance if purchase order exists
+    if (orderData) {
+        const { data: buyerData } = await supabase
+            .from('users')
+            .select('blocked_balance, wallet_balance')
+            .eq('id', requestData.buyer_id)
+            .single();
+        
+        if (buyerData) {
+            // Return blocked amount to available balance
+            await supabase
+                .from('users')
+                .update({
+                    wallet_balance: (buyerData.wallet_balance || 0) + orderData.buyer_blocked_amount,
+                    blocked_balance: Math.max(0, (buyerData.blocked_balance || 0) - orderData.buyer_blocked_amount)
+                })
+                .eq('id', requestData.buyer_id);
+        }
+    }
+    
+    // اطلاع دادن خریدار
+    await createNotification(
+        requestData.buyer_id,
+        '❌ فعال‌سازی رد شد',
+        `درخواست فعال‌سازی سیمکارت ${requestData.sim_number} توسط ادمین رد شد. مبلغ به کیف پول شما بازگشت داده شد.`,
+        'error'
+    );
+    
+    // اطلاع دادن فروشنده
+    await createNotification(
+        requestData.seller_id,
+        '❌ فعال‌سازی رد شد',
+        `درخواست فعال‌سازی سیمکارت ${requestData.sim_number} توسط ادمین رد شد.`,
+        'warning'
+    );
+};
+
+// --- Purchase Workflow Selection (Active/Inactive Line Choice) ---
+
+export const selectLineTypeAndDeliveryMethod = async (
+    purchaseOrderId: number,
+    deliveryMethod: 'activation_code' | 'physical_card'
+): Promise<void> => {
+    console.log('🎯 Selecting delivery method:', { purchaseOrderId, deliveryMethod });
+    
+    const { error } = await supabase
+        .from('purchase_orders')
+        .update({
+            delivery_method: deliveryMethod,
+            updated_at: new Date().toISOString()
+        })
+        .eq('id', purchaseOrderId);
+    
+    if (error) {
+        throw new Error(error.message);
+    }
+};
+
 export const deleteExpiredListings = async (): Promise<number> => {
+    // More code...
+
     // Get current date
     const now = new Date();
-    // Calculate 1 month ago
-    const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const oneMonthAgoIso = oneMonthAgo.toISOString();
+    // Calculate 30 days ago
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgoIso = thirtyDaysAgo.toISOString();
     
-    // Get all sim cards that were created more than 1 month ago
+    console.log('🗑 Cleaning up expired listings...');
+    
+    // حذف خطوط فروخته شده‌ای بیش از 30 روز
     const { data: expiredSims, error: fetchError } = await supabase
         .from('sim_cards')
         .select('id')
-        .lt('created_at', oneMonthAgoIso);
+        .eq('status', 'sold')
+        .lt('sold_date', thirtyDaysAgoIso);
     
     if (fetchError) {
-        console.error('خطا در بررسی اعلامات منقضی شده:', fetchError);
+        console.error('❌ خطا در بررسی اعلامات منقضی شده:', fetchError);
         return 0;
     }
     
     if (!expiredSims || expiredSims.length === 0) {
+        console.log('✅ هیچ اعلام منقضی نشده');
         return 0; // No expired listings
     }
+    
+    console.log(`🗑 حذف ${expiredSims.length} اعلام فروخته شده...`);
     
     const expiredIds = expiredSims.map(sim => sim.id);
     
@@ -2952,10 +3465,11 @@ export const deleteExpiredListings = async (): Promise<number> => {
         .in('id', expiredIds);
     
     if (deleteError) {
-        console.error('خطا در حذف اعلامات منقضی شده:', deleteError);
+        console.error('❌ خطا در حذف اعلامات منقضی شده:', deleteError);
         return 0;
     }
     
+    console.log(`✅ ${expiredIds.length} اعلام حذف شد`);
     return expiredIds.length;
 };
 
@@ -3021,6 +3535,13 @@ const api = {
     approvePurchase,
     getPurchaseOrders,
     getSupportMessages,
+    // Activation request functions
+    createActivationRequest,
+    getActivationRequests,
+    sendActivationCodeForZeroLine,
+    approveActivationRequest,
+    rejectActivationRequest,
+    selectLineTypeAndDeliveryMethod,
 };
 
 export default api;

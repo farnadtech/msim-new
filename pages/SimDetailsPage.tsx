@@ -5,6 +5,7 @@ import { useData } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
 import { SimCard as SimCardType, User } from '../types';
 import { useNotification } from '../contexts/NotificationContext';
+import LineDeliveryMethodModal from '../components/LineDeliveryMethodModal';
 import api from '../services/api-supabase';
 
 const CountdownTimer: React.FC<{ endTime: string }> = ({ endTime }) => {
@@ -61,6 +62,7 @@ const SimDetailsPage: React.FC = () => {
     const [showInquiryNumber, setShowInquiryNumber] = useState(false);
     const [isConfirmModalOpen, setConfirmModalOpen] = useState(false);
     const [isPurchaseCompleted, setIsPurchaseCompleted] = useState(false);
+    const [isDeliveryModalOpen, setDeliveryModalOpen] = useState(false);
 
     useEffect(() => {
         if (!loading && id) {
@@ -188,13 +190,76 @@ const SimDetailsPage: React.FC = () => {
             showNotification('شما نمی توانید سیمکارت خود را بخرید.', 'error');
             return;
         }
+        
+        // Check if this is an inactive line (zero line) - show delivery method selection
+        if (!sim.is_active) {
+            setDeliveryModalOpen(true);
+            return;
+        }
+        
         setIsProcessing(true);
         try {
             // We need to pass the document ID, not the numeric ID
             // For now, we'll use the numeric ID as a string, but this is the source of the bug
             await purchaseSim(sim.id, currentUser.id);
-            showNotification('خرید با موفقیت انجام شد! لطفا برای پیگیری سفارش خود به پنل خریدار مراجعه کنید.', 'success');
-            navigate('/buyer/orders');
+            showNotification('خرید با موفقیت انجام شد!', 'success');
+            navigate('/buyer');
+        } catch (err) {
+            if (err instanceof Error) showNotification(err.message, 'error');
+            else showNotification('خطایی در هنگام خرید رخ داد.', 'error');
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+    
+    const handleDeliveryMethodSelect = async (method: 'activation_code' | 'physical_card') => {
+        if (!currentUser || !sim) return;
+        
+        setIsProcessing(true);
+        try {
+            // First, create the purchase order
+            const lineType = sim.is_active ? 'active' : 'inactive';
+            
+            // Execute the purchase which will create a purchase order
+            await purchaseSim(sim.id, currentUser.id);
+            
+            // Create activation request for zero-line SIMs
+            if (!sim.is_active) {
+                // Get the purchase order we just created
+                const purchaseOrders = await api.getPurchaseOrders(currentUser.id, 'buyer');
+                const latestOrder = purchaseOrders.find(
+                    o => o.sim_card_id === sim.id && o.buyer_id === currentUser.id
+                );
+                
+                if (latestOrder) {
+                    await api.createActivationRequest(
+                        latestOrder.id,
+                        sim.id,
+                        currentUser.id,
+                        sim.seller_id,
+                        sim.number,
+                        currentUser.name,
+                        seller?.name || 'ناشناس'
+                    );
+                    
+                    // Store the delivery method preference (optional - can be added to DB schema)
+                    // For now, we'll just show appropriate notifications based on method
+                    if (method === 'activation_code') {
+                        showNotification(
+                            'خریدتان ثبت شد. لطفاً برای دریافت کد فعالسازی منتظر بمانید.',
+                            'success'
+                        );
+                    } else {
+                        showNotification(
+                            'خریدتان ثبت شد. فروشنده باید مدارک را ارسال کند.',
+                            'success'
+                        );
+                    }
+                }
+            }
+            
+            setDeliveryModalOpen(false);
+            navigate('/buyer');
         } catch (err) {
             if (err instanceof Error) showNotification(err.message, 'error');
             else showNotification('خطایی در هنگام خرید رخ داد.', 'error');
@@ -369,6 +434,14 @@ const SimDetailsPage: React.FC = () => {
                     </div>
                 </div>
             )}
+            <LineDeliveryMethodModal
+                isOpen={isDeliveryModalOpen}
+                simNumber={sim?.number || ''}
+                isInactiveLine={!sim?.is_active}
+                onSelect={handleDeliveryMethodSelect}
+                onClose={() => setDeliveryModalOpen(false)}
+                isLoading={isProcessing}
+            />
         </div>
     );
 };

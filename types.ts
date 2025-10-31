@@ -26,7 +26,7 @@ export interface SimCard {
   price: number;
   seller_id: string;
   type: SimCardTypeOption;
-  status: 'available' | 'sold';
+  status: 'available' | 'sold' | 'reserved';
   sold_date?: string;
   carrier: 'همراه اول' | 'ایرانسل' | 'رایتل';
   is_rond: boolean;
@@ -191,4 +191,25 @@ export interface TrackingCode {
     code: string;
     contact_phone: string;
     created_at: string;
+}
+
+export type ActivationRequestStatus = 'pending' | 'approved' | 'rejected' | 'activated';
+
+export interface ActivationRequest {
+    id: number;
+    purchase_order_id: number;
+    sim_card_id: number;
+    buyer_id: string;
+    seller_id: string;
+    sim_number: string;
+    buyer_name: string;
+    seller_name: string;
+    activation_code?: string;
+    sent_at?: string;
+    status: ActivationRequestStatus;
+    admin_id?: string;
+    admin_notes?: string;
+    verified_at?: string;
+    created_at: string;
+    updated_at: string;
 }

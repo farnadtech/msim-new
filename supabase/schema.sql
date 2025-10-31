@@ -36,7 +36,7 @@ CREATE TABLE sim_cards (
   price NUMERIC NOT NULL,
   seller_id UUID REFERENCES users(id),
   type TEXT CHECK (type IN ('fixed', 'auction', 'inquiry')) NOT NULL,
-  status TEXT CHECK (status IN ('available', 'sold')) NOT NULL,
+  status TEXT CHECK (status IN ('available', 'sold', 'reserved')) NOT NULL,
   sold_date TIMESTAMP WITH TIME ZONE,
   carrier TEXT CHECK (carrier IN ('همراه اول', 'ایرانسل', 'رایتل')) NOT NULL,
   is_rond BOOLEAN NOT NULL DEFAULT false,
@@ -73,7 +73,7 @@ CREATE TABLE bids (
 CREATE TABLE transactions (
   id SERIAL PRIMARY KEY,
   user_id UUID REFERENCES users(id),
-  type TEXT CHECK (type IN ('deposit', 'withdrawal', 'purchase', 'sale')) NOT NULL,
+  type TEXT CHECK (type IN ('deposit', 'withdrawal', 'purchase', 'sale', 'credit', 'debit_blocked')) NOT NULL,
   amount NUMERIC NOT NULL,
   date TIMESTAMP WITH TIME ZONE NOT NULL,
   description TEXT,

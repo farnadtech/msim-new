@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api-supabase';
-import { PurchaseOrder } from '../types';
+import { PurchaseOrder, SupportMessage } from '../types';
 import { useNotification } from '../contexts/NotificationContext';
 
 interface SellerActiveOrdersPanelProps {
@@ -12,6 +12,9 @@ const SellerActiveOrdersPanel: React.FC<SellerActiveOrdersPanelProps> = ({ userI
     const [loading, setLoading] = useState(true);
     const [verificationCode, setVerificationCode] = useState<{[key: number]: string}>({});
     const [uploadedDoc, setUploadedDoc] = useState<{[key: number]: File | null}>({});
+    const [messages, setMessages] = useState<{[key: number]: SupportMessage[]}>({});
+    const [showMessages, setShowMessages] = useState<{[key: number]: boolean}>({});
+    const [uploadingProgress, setUploadingProgress] = useState<{[key: number]: boolean}>({});
     const { showNotification } = useNotification();
 
     useEffect(() => {
@@ -29,10 +32,29 @@ const SellerActiveOrdersPanel: React.FC<SellerActiveOrdersPanelProps> = ({ userI
         }
     };
 
+    const loadMessages = async (orderId: number) => {
+        try {
+            const msgs = await api.getSupportMessages(orderId);
+            setMessages(prev => ({...prev, [orderId]: msgs}));
+        } catch (error) {
+            console.error('Error loading messages:', error);
+        }
+    };
+
+    const toggleMessages = async (orderId: number) => {
+        const isShowing = showMessages[orderId];
+        if (!isShowing) {
+            // بارگذاری پیام‌ها با تأخیر کوچک برای اطمینان از ذخیره
+            setTimeout(() => {
+                loadMessages(orderId);
+            }, 300);
+        }
+        setShowMessages(prev => ({...prev, [orderId]: !isShowing}));
+    };
+
     const handleSendPhoneVerification = async (orderId: number) => {
         try {
-            // ارسال SMS به شماره خط
-            const phoneNumber = '09121234567'; // بعدا از SIM card گرفته می‌شود
+            const phoneNumber = '09121234567';
             await api.sendPhoneVerificationCode(orderId, phoneNumber);
             showNotification('کد تایید به شماره ارسال شد', 'success');
             loadOrders();
@@ -43,16 +65,15 @@ const SellerActiveOrdersPanel: React.FC<SellerActiveOrdersPanelProps> = ({ userI
 
     const handleVerifyCode = async (orderId: number) => {
         const code = verificationCode[orderId];
-        if (!code || code !== '123456') { // کد تست
+        if (!code || code !== '123456') {
             showNotification('کد نامعتبر است', 'error');
             return;
         }
 
         try {
-            // به روزرسانی وضعیت به verified
             await api.updatePurchaseOrderStatus(orderId, 'verified');
             showNotification('احراز هویت با موفقیت انجام شد', 'success');
-            setVerificationCode({...verificationCode, [orderId]: ''});
+            setVerificationCode(prev => ({...prev, [orderId]: ''}));
             loadOrders();
         } catch (error) {
             showNotification('خطا در تایید کد', 'error');
@@ -67,17 +88,27 @@ const SellerActiveOrdersPanel: React.FC<SellerActiveOrdersPanelProps> = ({ userI
         }
 
         try {
+            // شروع progress
+            setUploadingProgress(prev => ({...prev, [orderId]: true}));
+            
+            console.log('Uploading document for order:', orderId);
+            
             // آپلود فایل به Supabase Storage
             const documentUrl = await api.uploadSellerDocument(file, userId, orderId);
+            console.log('Document uploaded, URL:', documentUrl);
             
             // ذخیره URL در database
-            await api.submitSellerDocument(orderId, documentUrl, 'handwriting');
+            const docId = await api.submitSellerDocument(orderId, documentUrl, 'handwriting');
+            console.log('Document submitted to database, ID:', docId);
             
             showNotification('سند با موفقیت آپلود شد', 'success');
-            setUploadedDoc({...uploadedDoc, [orderId]: null});
+            setUploadedDoc(prev => ({...prev, [orderId]: null}));
+            setUploadingProgress(prev => ({...prev, [orderId]: false}));
             loadOrders();
-        } catch (error) {
-            showNotification('خطا در آپلود سند', 'error');
+        } catch (error: any) {
+            console.error('Upload error for order', orderId, ':', error);
+            setUploadingProgress(prev => ({...prev, [orderId]: false}));
+            showNotification(`خطا در آپلود سند: ${error.message || 'خطای نامشخص'}`, 'error');
         }
     };
 
@@ -86,6 +117,7 @@ const SellerActiveOrdersPanel: React.FC<SellerActiveOrdersPanelProps> = ({ userI
             case 'pending': return '⏳ در انتظار احراز هویت';
             case 'verified': return '📋 در انتظار آپلود سند';
             case 'document_submitted': return '⏳ در انتظار تایید ادمین';
+            case 'document_rejected': return '⚠️ سند رد شده - می‌توانید مدرک جدید ارسال کنید';
             case 'completed': return '✅ تکمیل شده';
             default: return status;
         }
@@ -139,55 +171,104 @@ const SellerActiveOrdersPanel: React.FC<SellerActiveOrdersPanelProps> = ({ userI
 
                         {/* مرحله 1: ارسال SMS احراز هویت */}
                         {order.status === 'pending' && (
-                            <button
-                                onClick={() => handleSendPhoneVerification(order.id)}
-                                className="w-full bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 font-semibold"
-                            >
-                                📱 احراز هویت - ارسال کد به شماره
-                            </button>
-                        )}
+                            <div className="border-t pt-4 mt-4 space-y-3">
+                                <button
+                                    onClick={() => handleSendPhoneVerification(order.id)}
+                                    className="w-full bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 font-semibold"
+                                >
+                                    📱 احراز هویت - ارسال کد به شماره
+                                </button>
 
-                        {/* مرحله 2: وارد کردن کد */}
-                        {order.status === 'pending' && (
-                            <div className="border-t pt-4 mt-4">
-                                <h5 className="font-semibold mb-3">🔐 وارد کردن کد تایید (123456)</h5>
-                                <div className="flex gap-2">
-                                    <input
-                                        type="text"
-                                        placeholder="کد 6 رقمی"
-                                        value={verificationCode[order.id] || ''}
-                                        onChange={(e) => setVerificationCode({...verificationCode, [order.id]: e.target.value})}
-                                        maxLength={6}
-                                        className="flex-1 px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
-                                    />
-                                    <button
-                                        onClick={() => handleVerifyCode(order.id)}
-                                        className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 font-semibold"
-                                    >
-                                        ✅ تایید
-                                    </button>
+                                {/* مرحله 2: وارد کردن کد */}
+                                <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded">
+                                    <h5 className="font-semibold mb-3">🔐 وارد کردن کد تایید (123456)</h5>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            placeholder="کد 6 رقمی"
+                                            value={verificationCode[order.id] || ''}
+                                            onChange={(e) => setVerificationCode(prev => ({...prev, [order.id]: e.target.value}))}
+                                            maxLength={6}
+                                            className="flex-1 px-3 py-2 border rounded-lg dark:bg-gray-600 dark:border-gray-600"
+                                        />
+                                        <button
+                                            onClick={() => handleVerifyCode(order.id)}
+                                            className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 font-semibold"
+                                        >
+                                            ✅ تایید
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         )}
 
                         {/* مرحله 3: آپلود فرم */}
-                        {order.status === 'verified' && (
+                        {(order.status === 'verified' || order.status === 'document_rejected') && (
                             <div className="border-t pt-4 mt-4">
                                 <h5 className="font-semibold mb-3">📄 آپلود فرم دستنویس</h5>
                                 <div className="space-y-3">
                                     <input
                                         type="file"
                                         accept="image/*"
-                                        onChange={(e) => setUploadedDoc({...uploadedDoc, [order.id]: e.target.files?.[0] || null})}
+                                        onChange={(e) => setUploadedDoc(prev => ({...prev, [order.id]: e.target.files?.[0] || null}))}
                                         className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700"
+                                        disabled={uploadingProgress[order.id]}
                                     />
+                                    
+                                    {/* Progress bar */}
+                                    {uploadingProgress[order.id] && (
+                                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                                            <div className="bg-white dark:bg-gray-800 rounded-lg p-8 text-center max-w-sm">
+                                                <div className="mb-4">
+                                                    <div className="inline-block">
+                                                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                                                    </div>
+                                                </div>
+                                                <h3 className="text-lg font-semibold mb-2">در حال آپلود...</h3>
+                                                <p className="text-gray-600 dark:text-gray-400">لطفا صبر کنید، فایل شما آپلود می‌شود</p>
+                                            </div>
+                                        </div>
+                                    )}
+                                    
                                     <button
                                         onClick={() => handleUploadDocument(order.id, userId)}
-                                        className="w-full bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 font-semibold"
+                                        disabled={uploadingProgress[order.id]}
+                                        className="w-full bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 font-semibold disabled:bg-gray-400 disabled:cursor-not-allowed"
                                     >
-                                        📤 ارسال سند
+                                        {uploadingProgress[order.id] ? '⏳ در حال آپلود...' : '📤 ارسال سند'}
                                     </button>
                                 </div>
+                            </div>
+                        )}
+
+                        {/* نمایش دلیل رد و امکان ارسال مجدد */}
+                        {order.status === 'document_rejected' && (
+                            <div className="border-t pt-4 mt-4">
+                                <button
+                                    onClick={() => toggleMessages(order.id)}
+                                    className="w-full bg-red-200 dark:bg-red-900/30 px-4 py-2 rounded-lg hover:bg-red-300 dark:hover:bg-red-800 font-semibold"
+                                >
+                                    💬 {showMessages[order.id] ? 'بستن' : 'مشاهده'} دلیل رد توسط ادمین
+                                </button>
+
+                                {showMessages[order.id] && (
+                                    <div className="mt-4 space-y-3">
+                                        <div className="max-h-60 overflow-y-auto space-y-2 bg-red-50 dark:bg-red-900/20 p-3 rounded">
+                                            {messages[order.id] && messages[order.id].length > 0 ? (
+                                                messages[order.id].filter(msg => msg.message_type === 'response').map((msg) => (
+                                                    <div key={msg.id} className="p-3 rounded-lg bg-red-100 dark:bg-red-900/30">
+                                                        <p className="text-sm">{msg.message}</p>
+                                                        <p className="text-xs text-gray-500 mt-1">
+                                                            {new Date(msg.created_at).toLocaleString('fa-IR')}
+                                                        </p>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <p className="text-sm text-gray-500 text-center py-2">هنوز دلیل دریافت نشده</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
 

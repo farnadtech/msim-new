@@ -5,6 +5,7 @@ import DashboardLayout from '../components/DashboardLayout';
 import SecurePaymentsDisplay from '../components/SecurePaymentsDisplay';
 import BuyerPaymentCodeSection from '../components/BuyerPaymentCodeSection';
 import BuyerOrderTrackingPage from './BuyerOrderTrackingPage';
+import BuyerActivationRequestsPanel from './BuyerActivationRequestsPanel';
 import { useAuth } from '../hooks/useAuth';
 import { useData } from '../hooks/useData';
 import { useNotification } from '../contexts/NotificationContext';
@@ -12,8 +13,11 @@ import api from '../services/api-supabase';
 
 const BuyerOverview = () => {
     const { user } = useAuth();
-    const { simCards } = useData();
+    const { simCards, transactions } = useData();
     if (!user) return null;
+
+    const purchaseTransactions = transactions.filter(t => t.user_id === user.id && t.type === 'purchase' && t.description.startsWith('خرید سیمکارت'));
+    const purchasedSimCount = purchaseTransactions.length;
     
     const myBids = simCards.filter(s => s.type === 'auction' && s.auction_details?.highest_bidder_id === user.id && s.status === 'available');
 
@@ -22,7 +26,11 @@ const BuyerOverview = () => {
             <BuyerPaymentCodeSection userId={user.id} />
             <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
                 <h2 className="text-2xl font-bold mb-4">داشبورد خریدار</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-blue-100 dark:bg-blue-900 p-4 rounded-lg text-center">
+                        <p className="text-3xl font-bold text-blue-800 dark:text-blue-300">{purchasedSimCount}</p>
+                        <p className="text-blue-700 dark:text-blue-400">سیمکارت های خریداری شده</p>
+                    </div>
                     <div className="bg-green-100 dark:bg-green-900 p-4 rounded-lg text-center">
                         <p className="text-3xl font-bold text-green-800 dark:text-green-300">{myBids.length}</p>
                         <p className="text-green-700 dark:text-green-400">پیشنهادات فعال در حراجی</p>
@@ -36,8 +44,6 @@ const BuyerOverview = () => {
         </div>
     );
 };
-
-
 
 const CountdownTimer: React.FC<{ endTime: string }> = ({ endTime }) => {
     const calculateTimeLeft = () => {
@@ -156,6 +162,20 @@ const BuyerWallet = ({ onTransaction }: { onTransaction: (amount: number, type: 
 
     if (!user) return null;
     const myTransactions = transactions.filter(t => t.user_id === user.id).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    // تابع برای تعیین رنگ تراکنش
+    const getTransactionColor = (transaction: any) => {
+        // debit_blocked باید قرمز باشد (بلوک پول)
+        if (transaction.type === 'debit_blocked') {
+            return 'text-red-600';
+        }
+        // مقدار مثبت = سبز (درآمد)
+        if (transaction.amount > 0) {
+            return 'text-green-600';
+        }
+        // مقدار منفی = قرمز (هزینه)
+        return 'text-red-600';
+    };
 
     const handleOpenModal = (type: 'deposit' | 'withdrawal') => {
         setModalType(type);
@@ -277,7 +297,7 @@ const BuyerWallet = ({ onTransaction }: { onTransaction: (amount: number, type: 
             {myTransactions.length > 0 ? myTransactions.map(t => (
                 <div key={t.id} className="border-b dark:border-gray-700 py-2 flex justify-between">
                     <span>{t.description} - <span className="text-xs text-gray-500">{new Date(t.date).toLocaleDateString('fa-IR')}</span></span>
-                    <p className={t.amount > 0 ? 'text-green-600' : 'text-red-600'}>{t.amount.toLocaleString('fa-IR')} تومان</p>
+                    <p className={getTransactionColor(t)}>{t.amount.toLocaleString('fa-IR')} تومان</p>
                 </div>
             )) : <p className="text-gray-500">هیچ تراکنشی یافت نشد.</p>}
 
@@ -425,9 +445,10 @@ const BuyerDashboard: React.FC = () => {
             <h3 className="font-bold text-lg mb-4">پنل خریدار</h3>
             <nav className="space-y-2">
                 <NavItem to="." end>داشبورد</NavItem>
-                <NavItem to="orders">📦 خریدهای من</NavItem>
+                <NavItem to="orders">پیگیری خرید</NavItem>
                 <NavItem to="bids">حراجی های من</NavItem>
                 <NavItem to="wallet">کیف پول</NavItem>
+                <NavItem to="activation-requests">📦 درخواست‌های فعال‌سازی</NavItem>
                 <NavItem to="secure-payments">🔒 پرداخت های امن</NavItem>
                 <NavItem to="/notifications">🔔 اعلانات</NavItem>
             </nav>
@@ -438,14 +459,15 @@ const BuyerDashboard: React.FC = () => {
         <DashboardLayout sidebar={sidebar}>
             <Routes>
                 <Route index element={<BuyerOverview />} />
+                <Route path="orders" element={<BuyerOrderTrackingPage />} />
                 <Route path="bids" element={<MyBids />} />
                 <Route path="wallet" element={<BuyerWallet onTransaction={handleWalletTransaction} />} />
+                <Route path="activation-requests" element={<BuyerActivationRequestsPanel />} />
                 <Route path="secure-payments" element={user ? (
                     <div>
                         <SecurePaymentsDisplay userId={user.id} role="buyer" />
                     </div>
                 ) : null} />
-                <Route path="orders" element={<BuyerOrderTrackingPage />} />
             </Routes>
         </DashboardLayout>
     );
