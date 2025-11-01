@@ -1367,9 +1367,8 @@ export const completeAuctionPurchaseForWinner = async (simId: number, buyerId: s
         throw new Error('SIM card not found.');
     }
     
-    if (simData.status !== 'available') {
-        throw new Error('این سیمکارت دیگر در دسترس نیست.');
-    }
+    // NOTE: We don't check if SIM is already sold here because for auctions,
+    // the SIM should remain available until the delivery process is complete
     
     if (simData.type !== 'auction') {
         throw new Error('This SIM card is not an auction.');
@@ -1396,22 +1395,36 @@ export const completeAuctionPurchaseForWinner = async (simId: number, buyerId: s
         throw new Error('شما برنده این حراجی نیستید.');
     }
     
-    // Double-check that this auction hasn't already been processed by checking for existing transactions
-    const { data: existingTransactions, error: transactionError } = await supabase
-        .from('transactions')
+    // Double-check that this auction hasn't already been processed by checking for existing purchase orders
+    const { data: existingPurchaseOrder, error: purchaseOrderError } = await supabase
+        .from('purchase_orders')
         .select('*')
-        .like('description', `خرید سیمکارت ${simData.number}`)
-        .eq('type', 'purchase')
-        .eq('user_id', buyerId);
+        .eq('sim_card_id', simId)
+        .eq('buyer_id', buyerId)
+        .single();
         
-    if (transactionError) {
-        console.error('Error checking for existing transactions:', transactionError);
-    } else if (existingTransactions && existingTransactions.length > 0) {
+    if (!purchaseOrderError && existingPurchaseOrder) {
         throw new Error('این حراجی قبلاً تکمیل شده است.');
     }
     
+    // Get guarantee deposit amount for this user
+    let guaranteeDepositAmount = 0;
+    const { data: guaranteeDepositData, error: guaranteeError } = await supabase
+        .from('guarantee_deposits')
+        .select('amount')
+        .eq('user_id', buyerId)
+        .eq('auction_id', auctionDetails.id)
+        .eq('sim_card_id', simId)
+        .single();
+        
+    if (!guaranteeError && guaranteeDepositData) {
+        guaranteeDepositAmount = guaranteeDepositData.amount;
+    } else {
+        guaranteeDepositAmount = Math.floor(simData.price * 0.05);
+    }
+    
     // Determine the price (winning bid amount)
-    const price = auctionDetails.current_bid;
+    const bidAmount = auctionDetails.current_bid;
     
     // Get buyer data
     const { data: buyerData, error: buyerError } = await supabase
@@ -1427,9 +1440,53 @@ export const completeAuctionPurchaseForWinner = async (simId: number, buyerId: s
     const buyerCurrentBalance = buyerData.wallet_balance || 0;
     const buyerBlockedBalance = buyerData.blocked_balance || 0;
     
-    // Check if buyer has enough funds (including blocked funds)
-    if ((buyerCurrentBalance + buyerBlockedBalance) < price) {
-        throw new Error('موجودی کیف پول خریدار کافی نیست.');
+    // CRITICAL: Release the winner's guarantee deposit BEFORE checking balance
+    // The winner's deposit is still blocked, so we need to unblock it first
+    console.log('🔓 Releasing winner\'s guarantee deposit before purchase...');
+    console.log('  Current wallet:', buyerCurrentBalance.toLocaleString('fa-IR'));
+    console.log('  Current blocked:', buyerBlockedBalance.toLocaleString('fa-IR'));
+    console.log('  Guarantee to release:', guaranteeDepositAmount.toLocaleString('fa-IR'));
+    console.log('  Bid amount needed:', bidAmount.toLocaleString('fa-IR'));
+    
+    // Unblock the guarantee deposit first
+    const buyerBlockedAfterRelease = Math.max(0, buyerBlockedBalance - guaranteeDepositAmount);
+    
+    await supabase
+        .from('users')
+        .update({
+            blocked_balance: buyerBlockedAfterRelease
+        })
+        .eq('id', buyerId);
+    
+    // Mark the guarantee deposit as released
+    await supabase
+        .from('guarantee_deposits')
+        .update({
+            status: 'released',
+            reason: 'برنده حراجی شد - ضمانت آزاد شد',
+            updated_at: new Date().toISOString()
+        })
+        .eq('user_id', buyerId)
+        .eq('auction_id', auctionDetails.id)
+        .eq('status', 'blocked');
+    
+    // Update participant record
+    await supabase
+        .from('auction_participants')
+        .update({
+            guarantee_deposit_blocked: false,
+            updated_at: new Date().toISOString()
+        })
+        .eq('user_id', buyerId)
+        .eq('auction_id', auctionDetails.id);
+    
+    console.log('✅ Guarantee deposit released. New blocked balance:', buyerBlockedAfterRelease.toLocaleString('fa-IR'));
+    console.log('  Available balance now:', (buyerCurrentBalance - buyerBlockedAfterRelease).toLocaleString('fa-IR'));
+    
+    // NOW check if buyer has enough funds (after releasing guarantee)
+    const availableBalance = buyerCurrentBalance - buyerBlockedAfterRelease;
+    if (availableBalance < bidAmount) {
+        throw new Error(`موجودی کافی نیست. مورد نیاز: ${bidAmount.toLocaleString('fa-IR')} تومان، موجودی شما: ${availableBalance.toLocaleString('fa-IR')} تومان`);
     }
     
     // Get seller data
@@ -1443,13 +1500,11 @@ export const completeAuctionPurchaseForWinner = async (simId: number, buyerId: s
         throw new Error(`Seller with ID ${simData.seller_id} not found for transaction.`);
     }
     
-    // Update buyer balance - only unblock the winning bid amount
-    // The buyer already has the bid amount blocked, so we just need to adjust the balances
-    // We should only unblock the amount from blocked balance, not deduct again from wallet
-    const buyerNewBalance = buyerCurrentBalance; // No change to wallet balance
-    const buyerNewBlockedBalance = buyerBlockedBalance - price; // Only unblock from blocked balance
+    // STEP 1: Block the amount in buyer's account (DO NOT deduct or mark SIM as sold)
+    const buyerNewBalance = buyerCurrentBalance - bidAmount; // Deduct from wallet
+    const buyerNewBlockedBalance = buyerBlockedBalance + bidAmount; // Add to blocked balance
     
-    const { error: buyerUpdateError } = await supabase
+    const { error: buyerBlockError } = await supabase
         .from('users')
         .update({ 
             wallet_balance: buyerNewBalance,
@@ -1457,142 +1512,74 @@ export const completeAuctionPurchaseForWinner = async (simId: number, buyerId: s
         })
         .eq('id', buyerId);
         
-    if (buyerUpdateError) {
-        throw new Error(buyerUpdateError.message);
+    if (buyerBlockError) {
+        throw new Error(buyerBlockError.message);
     }
     
-    // Update seller balance with 2% commission deduction
-    const COMMISSION_PERCENTAGE = 2;
-    const commissionAmount = Math.floor(price * (COMMISSION_PERCENTAGE / 100));
-    const sellerReceivedAmount = price - commissionAmount;
-    const sellerNewBalance = (sellerData.wallet_balance || 0) + sellerReceivedAmount;
-    const { error: sellerUpdateError } = await supabase
-        .from('users')
-        .update({ wallet_balance: sellerNewBalance })
-        .eq('id', simData.seller_id);
-        
-    if (sellerUpdateError) {
-        throw new Error(sellerUpdateError.message);
-    }
-    
-    // Update SIM card status
-    const { error: simUpdateError } = await supabase
-        .from('sim_cards')
-        .update({ status: 'sold', sold_date: new Date().toISOString() })
-        .eq('id', simId);
-        
-    if (simUpdateError) {
-        throw new Error(simUpdateError.message);
-    }
-    
-    // Add transaction records
-    const buyerTransaction = {
-        user_id: buyerId,
-        type: 'purchase' as const,
-        amount: -price,
-        description: `خرید سیمکارت ${simData.number}`,
-        date: new Date().toISOString()
-    };
-    
-    const { error: buyerTransactionError } = await supabase
-        .from('transactions')
-        .insert(buyerTransaction);
-        
-    if (buyerTransactionError) {
-        throw new Error(buyerTransactionError.message);
-    }
-    
-    const sellerTransaction = {
-        user_id: simData.seller_id,
-        type: 'sale' as const,
-        amount: sellerReceivedAmount,
-        description: `فروش سیمکارت ${simData.number} (کمیسیون ${commissionAmount} تومان کسر شد)`,
-        date: new Date().toISOString()
-    };
-    
-    const { error: sellerTransactionError } = await supabase
-        .from('transactions')
-        .insert(sellerTransaction);
-        
-    if (sellerTransactionError) {
-        throw new Error(sellerTransactionError.message);
-    }
-    
-    // Record commission in commissions table
-    const { data: commissionBuyerData, error: buyerDataError } = await supabase
-        .from('users')
-        .select('name')
-        .eq('id', buyerId)
+    // STEP 2: Create purchase order (status: pending - waiting for line activation/delivery)
+    const { data: purchaseOrderData, error: purchaseOrderInsertError } = await supabase
+        .from('purchase_orders')
+        .insert({
+            sim_card_id: simId,
+            buyer_id: buyerId,
+            seller_id: simData.seller_id,
+            line_type: simData.is_active ? 'active' : 'inactive',
+            status: 'pending', // Pending until line delivery is complete
+            price: bidAmount,
+            commission_amount: Math.floor(bidAmount * 0.02),
+            seller_received_amount: bidAmount - Math.floor(bidAmount * 0.02),
+            buyer_blocked_amount: bidAmount,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+        })
+        .select()
         .single();
         
-    if (!buyerDataError && commissionBuyerData) {
-        const commissionRecord = {
-            sim_card_id: simId,
-            seller_id: simData.seller_id,
-            seller_name: sellerData.name,
-            sim_number: simData.number,
-            sale_price: price,
-            commission_amount: commissionAmount,
-            commission_percentage: COMMISSION_PERCENTAGE,
-            seller_received_amount: sellerReceivedAmount,
-            sale_type: simData.type,
-            buyer_id: buyerId,
-            buyer_name: commissionBuyerData.name,
-            date: new Date().toISOString()
-        };
-        
-        const { error: commissionError } = await supabase.from('commissions').insert(commissionRecord);
-        
-        if (commissionError) {
-            console.error('Error recording commission:', commissionError.message);
-        } else {
-            // Send notification to all admins about the new commission
-            await createNotificationForAdmins(
-                'کمیسیون جدید ثبت شد',
-                `کمیسیون ${commissionAmount.toLocaleString('fa-IR')} تومان برای فروش سیمکارت ${simData.number} به ${commissionBuyerData.name} ثبت شد.`,
-                'success'
-            );
-        }
-    } else {
-        console.error('Error fetching buyer data for commission:', buyerDataError?.message);
+    if (purchaseOrderInsertError) {
+        // Rollback buyer balance if purchase order creation fails
+        await supabase
+            .from('users')
+            .update({ 
+                wallet_balance: buyerCurrentBalance,
+                blocked_balance: buyerBlockedBalance
+            })
+            .eq('id', buyerId);
+        throw new Error('خطا در ایجاد سفارش خرید: ' + purchaseOrderInsertError.message);
     }
     
-    // Handle auction refunds for other bidders
-    // Get bids for this auction
-    const { data: bidsData, error: bidsError } = await supabase
-        .from('bids')
-        .select('*')
-        .eq('sim_card_id', simId);
+    // STEP 3: Record the blocking transaction
+    const blockTransaction = {
+        user_id: buyerId,
+        type: 'debit_blocked' as const,
+        amount: -bidAmount,
+        description: `خرید حراجی سیمکارت ${simData.number} - ${bidAmount.toLocaleString('fa-IR')} تومان (در انتظار تحویل خط)`,
+        date: new Date().toISOString()
+    };
+    
+    const { error: blockTransactionError } = await supabase
+        .from('transactions')
+        .insert(blockTransaction);
         
-    if (!bidsError && bidsData && bidsData.length > 0) {
-        const otherBidders = bidsData.filter(b => b.user_id !== buyerId);
-        
-        for (const bid of otherBidders) {
-            // Get bidder data
-            const { data: bidderData, error: bidderError } = await supabase
-                .from('users')
-                .select('*')
-                .eq('id', bid.user_id)
-                .single();
-                
-            if (!bidderError && bidderData) {
-                const newWalletBalance = (bidderData.wallet_balance || 0) + bid.amount;
-                const newBlockedBalance = (bidderData.blocked_balance || 0) - bid.amount;
-                
-                const { error: bidderUpdateError } = await supabase
-                    .from('users')
-                    .update({ 
-                        wallet_balance: newWalletBalance,
-                        blocked_balance: newBlockedBalance
-                    })
-                    .eq('id', bid.user_id);
-                    
-                if (bidderUpdateError) {
-                    console.error('Error updating bidder balance:', bidderUpdateError.message);
-                }
-            }
-        }
+    if (blockTransactionError) {
+        console.error('Error recording block transaction:', blockTransactionError.message);
     }
+    
+    // STEP 4: Send notifications
+    await createNotification(
+        buyerId,
+        '✅ حراجی تکمیل شد - منتظر تحویل خط',
+        `خرید سیمکارت ${simData.number} به مبلغ ${bidAmount.toLocaleString('fa-IR')} تومان تایید شد. مبلغ در حساب شما بلوک شده است. لطفاً به قسمت "پیگیری خریدها" بروید تا مراحل تحویل خط را دنبال کنید.`,
+        'info'
+    );
+    
+    await createNotification(
+        simData.seller_id,
+        '🎯 سفارش خرید جدید',
+        `سیمکارت ${simData.number} به فروش رسیده است. لطفاً در بخش "درخواست‌های خریداران" اقدام به تحویل خط کنید.`,
+        'info'
+    );
+    
+    console.log('✅ Auction purchase blocked successfully - waiting for line delivery');
 };
 
 export const completeAuctionPurchase = async (simId: number): Promise<void> => {
@@ -1835,14 +1822,10 @@ export const createSecurePayment = async (
     // Check if SIM is already reserved for another secure payment
     if (simCard.reserved_by_secure_payment_id) {
         // Check if it's reserved by the same buyer for this payment
-        const { data: existingPayment } = await supabase
-            .from('secure_payments')
-            .select('id, buyer_id')
-            .eq('id', simCard.reserved_by_secure_payment_id)
-            .single();
+        const existingPayment = await getSecurePayments(buyerId, 'buyer');
+        const existingPaymentForSim = existingPayment.find(p => p.sim_card_id === simCardId && p.status !== 'cancelled');
         
-        // If reserved for a different buyer, reject
-        if (existingPayment && existingPayment.buyer_id !== buyerId) {
+        if (existingPaymentForSim && existingPaymentForSim.buyer_id !== buyerId) {
             throw new Error('این شماره لاله خریدار دیگری است');
         }
     }
@@ -1876,7 +1859,7 @@ export const createSecurePayment = async (
         throw new Error('موجودی کیف پول برای انجام این پرداخت امن کافی نیست');
     }
     
-    // Create secure payment record WITHOUT blocking money yet
+    // STEP 1: Create secure payment record
     const { data: securePaymentData, error: paymentError } = await supabase
         .from('secure_payments')
         .insert({
@@ -1898,6 +1881,83 @@ export const createSecurePayment = async (
         throw new Error(`خطا در ثبت پرداخت امن: ${paymentError.message}`);
     }
     
+    // STEP 2: Create purchase order (similar to auction purchases)
+    const lineType = simCard.is_active ? 'active' : 'inactive';
+    const commissionAmount = Math.floor(amount * 0.02);
+    const sellerReceivedAmount = amount - commissionAmount;
+    
+    const { data: purchaseOrderData, error: purchaseOrderError } = await supabase
+        .from('purchase_orders')
+        .insert({
+            sim_card_id: simCardId,
+            buyer_id: buyerId,
+            seller_id: sellerId,
+            line_type: lineType,
+            status: 'pending', // Waiting for line activation/delivery
+            price: amount,
+            commission_amount: commissionAmount,
+            seller_received_amount: sellerReceivedAmount,
+            buyer_blocked_amount: amount,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+    
+    if (purchaseOrderError) {
+        throw new Error('خطا در ایجاد سفارش خرید: ' + purchaseOrderError.message);
+    }
+    
+    // STEP 3: Block funds in buyer's account
+    const buyerNewBalance = buyerData.wallet_balance - amount;
+    const buyerNewBlockedBalance = (buyerData.blocked_balance || 0) + amount;
+    
+    await supabase
+        .from('users')
+        .update({
+            wallet_balance: buyerNewBalance,
+            blocked_balance: buyerNewBlockedBalance
+        })
+        .eq('id', buyerId);
+    
+    // STEP 4: For zero-line SIMs, create activation request
+    if (!simCard.is_active) {
+        const { error: activationRequestError } = await supabase
+            .from('activation_requests')
+            .insert({
+                purchase_order_id: purchaseOrderData.id,
+                sim_card_id: simCardId,
+                buyer_id: buyerId,
+                seller_id: sellerId,
+                sim_number: simCard.number,
+                buyer_name: buyerData.name,
+                seller_name: sellerData.name,
+                status: 'pending',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            });
+        
+        if (activationRequestError) {
+            console.error('Error creating activation request:', activationRequestError.message);
+        }
+    }
+    
+    // STEP 5: Send notifications
+    await createNotification(
+        buyerId,
+        '🔒 پرداخت امن ایجاد شد',
+        `پرداخت امن برای سیمکارت ${simCard.number} به مبلغ ${amount.toLocaleString('fa-IR')} تومان ایجاد شد. لطفاً به قسمت "پیگیری خریدها" بروید.`,
+        'info'
+    );
+    
+    await createNotification(
+        sellerId,
+        '🎯 سفارش خرید جدید - پرداخت امن',
+        `سیمکارت ${simCard.number} برای پرداخت امن انتخاب شد. لطفاً در بخش "درخواست‌های خریداران" اقدام به تحویل خط کنید.`,
+        'info'
+    );
+    
+    console.log('✅ Secure payment created with purchase order:', purchaseOrderData.id);
     return securePaymentData as SecurePayment;
 };
 
@@ -1944,6 +2004,19 @@ export const withdrawSecurePaymentFunds = async (
         throw new Error('موجودی کیف پول کافی نیست');
     }
     
+    // Get SIM card details to check if it's active
+    const { data: simCard, error: simError } = await supabase
+        .from('sim_cards')
+        .select('is_active')
+        .eq('id', payment.sim_card_id)
+        .single();
+    
+    if (simError || !simCard) {
+        throw new Error('سیمکارت یافت نشد');
+    }
+    
+    // FOR BOTH ACTIVE AND INACTIVE LINES:
+    // Just block the funds and show "در انتظار تحویل خط" status
     // Deduct amount from buyer's wallet and add to blocked_balance
     const buyerNewBalance = (buyerData.wallet_balance || 0) - payment.amount;
     const buyerNewBlockedBalance = (buyerData.blocked_balance || 0) + payment.amount;
@@ -2013,6 +2086,282 @@ export const withdrawSecurePaymentFunds = async (
         description: `برداشت مبلغ پرداخت امن برای شماره ${payment.sim_number}`,
         date: new Date().toISOString()
     });
+    
+    // Remove the auto-completion logic - both active and inactive lines now wait for delivery
+};
+
+// Function to complete secure payment after purchase order is completed
+export const completeSecurePaymentAfterDelivery = async (
+    securePaymentId: number,
+    buyerId: string
+): Promise<void> => {
+    // Get secure payment details
+    const { data: payment, error: paymentError } = await supabase
+        .from('secure_payments')
+        .select('*')
+        .eq('id', securePaymentId)
+        .single();
+    
+    if (paymentError || !payment) {
+        throw new Error('پرداخت امن یافت نشد');
+    }
+    
+    if (payment.buyer_id !== buyerId) {
+        throw new Error('شما مجاز نیستید');
+    }
+    
+    if (payment.status === 'completed') {
+        return; // Already completed
+    }
+    
+    // Get associated purchase order
+    const { data: purchaseOrder, error: orderError } = await supabase
+        .from('purchase_orders')
+        .select('*')
+        .eq('sim_card_id', payment.sim_card_id)
+        .eq('buyer_id', buyerId)
+        .eq('status', 'completed')
+        .single();
+    
+    if (!purchaseOrder) {
+        return; // No completed purchase order yet
+    }
+    
+    // Get buyer details
+    const { data: buyerData, error: buyerError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', payment.buyer_id)
+        .single();
+    
+    if (buyerError || !buyerData) {
+        throw new Error('خریدار یافت نشد');
+    }
+    
+    // Get seller details
+    const { data: sellerData, error: sellerError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', payment.seller_id)
+        .single();
+    
+    if (sellerError || !sellerData) {
+        throw new Error('فروشنده یافت نشد');
+    }
+    
+    // STEP 1: Unblock the money from buyer's blocked balance
+    const buyerNewBlockedBalance = (buyerData.blocked_balance || 0) - payment.amount;
+    
+    await supabase
+        .from('users')
+        .update({
+            blocked_balance: buyerNewBlockedBalance
+        })
+        .eq('id', payment.buyer_id);
+    
+    // STEP 2: Add money to seller's wallet (after commission deduction)
+    const sellerNewBalance = (sellerData.wallet_balance || 0) + purchaseOrder.seller_received_amount;
+    
+    await supabase
+        .from('users')
+        .update({
+            wallet_balance: sellerNewBalance
+        })
+        .eq('id', payment.seller_id);
+    
+    // STEP 3: Mark SIM card as sold
+    await supabase
+        .from('sim_cards')
+        .update({
+            status: 'sold',
+            sold_date: new Date().toISOString()
+        })
+        .eq('id', payment.sim_card_id);
+    
+    // STEP 4: Update secure payment status to completed
+    await supabase
+        .from('secure_payments')
+        .update({
+            status: 'completed',
+            completed_at: new Date().toISOString()
+        })
+        .eq('id', securePaymentId);
+    
+    // STEP 5: Record transaction for seller
+    await supabase.from('transactions').insert({
+        user_id: payment.seller_id,
+        type: 'sale',
+        amount: purchaseOrder.seller_received_amount,
+        description: `دریافت پرداخت امن برای شماره ${payment.sim_number} - بعد از کسر 2% کمیسیون`,
+        date: new Date().toISOString()
+    });
+    
+    // STEP 6: Create commission record
+    const { data: buyerNameData } = await supabase
+        .from('users')
+        .select('name')
+        .eq('id', payment.buyer_id)
+        .single();
+    
+    await supabase
+        .from('commissions')
+        .insert({
+            sim_card_id: payment.sim_card_id,
+            seller_id: payment.seller_id,
+            seller_name: sellerData.name,
+            sim_number: payment.sim_number,
+            sale_price: payment.amount,
+            commission_amount: purchaseOrder.commission_amount,
+            commission_percentage: 2,
+            seller_received_amount: purchaseOrder.seller_received_amount,
+            sale_type: 'secure_payment',
+            buyer_id: payment.buyer_id,
+            buyer_name: buyerNameData?.name || 'ناشناس',
+            date: new Date().toISOString()
+        });
+    
+    // STEP 7: Send notifications
+    await createNotification(
+        payment.buyer_id,
+        '🎉 پرداخت امن تکمیل شد',
+        `پرداخت امن برای سیمکارت ${payment.sim_number} به موفقیت تایید شد.`,
+        'success'
+    );
+    
+    await createNotification(
+        payment.seller_id,
+        '💰 پول پرداخت امن واریز شد',
+        `مبلغ ${purchaseOrder.seller_received_amount.toLocaleString('fa-IR')} تومان برای پرداخت امن سیمکارت ${payment.sim_number} به حساب شما اضافه شد.`,
+        'success'
+    );
+    
+    console.log('✅ Secure payment completed after delivery confirmation');
+};
+
+// New function to complete secure payment for active lines immediately
+const completeSecurePaymentForActiveLine = async (
+    securePaymentId: number,
+    payment: any,
+    purchaseOrder: any
+): Promise<void> => {
+    // Get buyer details
+    const { data: buyerData, error: buyerError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', payment.buyer_id)
+        .single();
+    
+    if (buyerError || !buyerData) {
+        throw new Error('خریدار یافت نشد');
+    }
+    
+    // Get seller details
+    const { data: sellerData, error: sellerError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', payment.seller_id)
+        .single();
+    
+    if (sellerError || !sellerData) {
+        throw new Error('فروشنده یافت نشد');
+    }
+    
+    // STEP 1: Unblock the money from buyer's blocked balance
+    const buyerNewBlockedBalance = (buyerData.blocked_balance || 0) - payment.amount;
+    
+    await supabase
+        .from('users')
+        .update({
+            blocked_balance: buyerNewBlockedBalance
+        })
+        .eq('id', payment.buyer_id);
+    
+    // STEP 2: Add money to seller's wallet (after commission deduction)
+    const sellerNewBalance = (sellerData.wallet_balance || 0) + purchaseOrder.seller_received_amount;
+    
+    await supabase
+        .from('users')
+        .update({
+            wallet_balance: sellerNewBalance
+        })
+        .eq('id', payment.seller_id);
+    
+    // STEP 3: Mark SIM card as sold
+    await supabase
+        .from('sim_cards')
+        .update({
+            status: 'sold',
+            sold_date: new Date().toISOString()
+        })
+        .eq('id', payment.sim_card_id);
+    
+    // STEP 4: Update purchase order status to completed
+    await supabase
+        .from('purchase_orders')
+        .update({
+            status: 'completed',
+            updated_at: new Date().toISOString()
+        })
+        .eq('id', purchaseOrder.id);
+    
+    // STEP 5: Update secure payment status to completed
+    await supabase
+        .from('secure_payments')
+        .update({
+            status: 'completed',
+            completed_at: new Date().toISOString()
+        })
+        .eq('id', securePaymentId);
+    
+    // STEP 6: Record transactions
+    await supabase.from('transactions').insert({
+        user_id: payment.seller_id,
+        type: 'sale',
+        amount: purchaseOrder.seller_received_amount,
+        description: `دریافت پرداخت امن برای شماره ${payment.sim_number} - بعد از کسر 2% کمیسیون`,
+        date: new Date().toISOString()
+    });
+    
+    // STEP 7: Create commission record
+    const { data: buyerNameData } = await supabase
+        .from('users')
+        .select('name')
+        .eq('id', payment.buyer_id)
+        .single();
+    
+    await supabase
+        .from('commissions')
+        .insert({
+            sim_card_id: payment.sim_card_id,
+            seller_id: payment.seller_id,
+            seller_name: sellerData.name,
+            sim_number: payment.sim_number,
+            sale_price: payment.amount,
+            commission_amount: purchaseOrder.commission_amount,
+            commission_percentage: 2,
+            seller_received_amount: purchaseOrder.seller_received_amount,
+            sale_type: 'secure_payment',
+            buyer_id: payment.buyer_id,
+            buyer_name: buyerNameData?.name || 'ناشناس',
+            date: new Date().toISOString()
+        });
+    
+    // STEP 8: Send notifications
+    await createNotification(
+        payment.buyer_id,
+        '🎉 پرداخت امن تکمیل شد',
+        `پرداخت امن برای سیمکارت ${payment.sim_number} به موفقیت تایید شد.`,
+        'success'
+    );
+    
+    await createNotification(
+        payment.seller_id,
+        '💰 پول پرداخت امن واریز شد',
+        `مبلغ ${purchaseOrder.seller_received_amount.toLocaleString('fa-IR')} تومان برای پرداخت امن سیمکارت ${payment.sim_number} به حساب شما اضافه شد.`,
+        'success'
+    );
+    
+    console.log('✅ Secure payment completed immediately for active line');
 };
 
 export const releaseSecurePayment = async (
@@ -2043,6 +2392,19 @@ export const releaseSecurePayment = async (
         throw new Error('لطفاً ابتدا مبلغ پرداخت امن را برداشت کنید');
     }
     
+    // Get associated purchase order
+    const { data: purchaseOrder, error: orderError } = await supabase
+        .from('purchase_orders')
+        .select('*')
+        .eq('sim_card_id', payment.sim_card_id)
+        .eq('buyer_id', buyerId)
+        .eq('status', 'code_sent')
+        .single();
+    
+    if (!purchaseOrder) {
+        throw new Error('سفارش خرید برای این پرداخت یافت نشد');
+    }
+    
     // Get buyer details
     const { data: buyerData, error: buyerError } = await supabase
         .from('users')
@@ -2065,121 +2427,62 @@ export const releaseSecurePayment = async (
         throw new Error('فروشنده یافت نشد');
     }
     
-    // Calculate 2% commission
-    const COMMISSION_PERCENTAGE = 2;
-    const commissionAmount = Math.floor(payment.amount * (COMMISSION_PERCENTAGE / 100));
-    const sellerReceivedAmount = payment.amount - commissionAmount;
-    
-    // Update buyer's blocked_balance (remove the held amount)
+    // STEP 1: Unblock the money from buyer's blocked balance
     const buyerNewBlockedBalance = (buyerData.blocked_balance || 0) - payment.amount;
-    const { error: buyerUpdateError } = await supabase
-        .from('users')
-        .update({ blocked_balance: buyerNewBlockedBalance })
-        .eq('id', buyerId);
     
-    if (buyerUpdateError) {
-        throw new Error(`خطا در بروزرسانی کیف پول خریدار: ${buyerUpdateError.message}`);
-    }
-    
-    // Update seller's wallet (add with commission deducted)
-    const sellerNewWalletBalance = (sellerData.wallet_balance || 0) + sellerReceivedAmount;
-    
-    const { error: sellerUpdateError } = await supabase
+    await supabase
         .from('users')
         .update({
-            wallet_balance: sellerNewWalletBalance
+            blocked_balance: buyerNewBlockedBalance
+        })
+        .eq('id', payment.buyer_id);
+    
+    // STEP 2: Add money to seller's wallet (after commission deduction)
+    const sellerNewBalance = (sellerData.wallet_balance || 0) + purchaseOrder.seller_received_amount;
+    
+    await supabase
+        .from('users')
+        .update({
+            wallet_balance: sellerNewBalance
         })
         .eq('id', payment.seller_id);
     
-    if (sellerUpdateError) {
-        // Rollback buyer's blocked balance
-        await supabase
-            .from('users')
-            .update({ blocked_balance: buyerData.blocked_balance })
-            .eq('id', buyerId);
-        throw new Error(`خطا در آزادسازی پول: ${sellerUpdateError.message}`);
-    }
+    // STEP 3: Mark SIM card as sold
+    await supabase
+        .from('sim_cards')
+        .update({
+            status: 'sold',
+            sold_date: new Date().toISOString()
+        })
+        .eq('id', payment.sim_card_id);
     
-    // Record commission in commissions table
-    const { error: commissionError } = await supabase
-        .from('commissions')
-        .insert({
-            seller_id: payment.seller_id,
-            buyer_id: payment.buyer_id,
-            seller_name: sellerData.name,
-            buyer_name: buyerData.name,
-            amount: commissionAmount,
-            transaction_type: 'secure_payment',
-            transaction_id: securePaymentId,
-            description: `کارمزد پرداخت امن - شماره ${payment.sim_number}`,
-            created_at: new Date().toISOString()
-        });
+    // STEP 4: Update purchase order status to completed
+    await supabase
+        .from('purchase_orders')
+        .update({
+            status: 'completed',
+            updated_at: new Date().toISOString()
+        })
+        .eq('id', purchaseOrder.id);
     
-    if (commissionError) {
-        console.error('خطا در ثبت کارمزد:', commissionError);
-    } else {
-        // Send notification to all admins about the new commission
-        try {
-            // Get all admin users
-            const { data: admins, error: adminError } = await supabase
-                .from('users')
-                .select('id')
-                .eq('role', 'admin');
-            
-            if (!adminError && admins && admins.length > 0) {
-                // Create notification for each admin
-                const notificationPromises = admins.map(admin => 
-                    supabase.from('notifications').insert({
-                        user_id: admin.id,
-                        title: 'کمیسیون جدید ثبت شد',
-                        message: `کمیسیون ${commissionAmount.toLocaleString('fa-IR')} تومان برای پرداخت امن شماره ${payment.sim_number} به ${buyerData.name} ثبت شد.`,
-                        type: 'info',
-                        is_read: false,
-                        created_at: new Date().toISOString()
-                    })
-                );
-                
-                // Execute all notification insertions
-                await Promise.all(notificationPromises);
-            }
-        } catch (notificationError) {
-            console.error('Error sending admin notifications:', notificationError);
-        }
-    }
-    
-    // Update payment status to released
-    const { error: updateError } = await supabase
+    // STEP 5: Update secure payment status to completed
+    await supabase
         .from('secure_payments')
         .update({
-            status: 'released',
-            released_at: new Date().toISOString()
+            status: 'completed',
+            completed_at: new Date().toISOString()
         })
         .eq('id', securePaymentId);
     
-    if (updateError) {
-        throw new Error(`خطا در بروزرسانی وضعیت پرداخت: ${updateError.message}`);
-    }
-    
-    // Mark SIM card as sold
-    const { error: simUpdateError } = await supabase
-        .from('sim_cards')
-        .update({ status: 'sold' })
-        .eq('id', payment.sim_card_id);
-    
-    if (simUpdateError) {
-        console.error('خطا در علامتگذاری به عنوان فروخته شده:', simUpdateError);
-    }
-    
-    // Create transaction for seller (with commission deducted)
+    // STEP 6: Record transactions
     await supabase.from('transactions').insert({
         user_id: payment.seller_id,
         type: 'sale',
-        amount: sellerReceivedAmount,
-        description: `تایید پرداخت امن برای شماره ${payment.sim_number} (کارمزد: ${commissionAmount})`,
+        amount: purchaseOrder.seller_received_amount,
+        description: `دریافت پرداخت امن برای شماره ${payment.sim_number} - بعد از کسر 2% کمیسیون`,
         date: new Date().toISOString()
     });
     
-    // Create transaction for buyer (deduction from blocked balance)
     await supabase.from('transactions').insert({
         user_id: payment.buyer_id,
         type: 'purchase',
@@ -2187,6 +2490,47 @@ export const releaseSecurePayment = async (
         description: `تایید پرداخت امن برای شماره ${payment.sim_number}`,
         date: new Date().toISOString()
     });
+    
+    // STEP 7: Create commission record
+    const { data: buyerNameData } = await supabase
+        .from('users')
+        .select('name')
+        .eq('id', payment.buyer_id)
+        .single();
+    
+    await supabase
+        .from('commissions')
+        .insert({
+            sim_card_id: payment.sim_card_id,
+            seller_id: payment.seller_id,
+            seller_name: sellerData.name,
+            sim_number: payment.sim_number,
+            sale_price: payment.amount,
+            commission_amount: purchaseOrder.commission_amount,
+            commission_percentage: 2,
+            seller_received_amount: purchaseOrder.seller_received_amount,
+            sale_type: 'secure_payment',
+            buyer_id: payment.buyer_id,
+            buyer_name: buyerNameData?.name || 'ناشناس',
+            date: new Date().toISOString()
+        });
+    
+    // STEP 8: Send notifications
+    await createNotification(
+        payment.buyer_id,
+        '🎉 پرداخت امن تکمیل شد',
+        `پرداخت امن برای سیمکارت ${payment.sim_number} به موفقیت تایید شد.`,
+        'success'
+    );
+    
+    await createNotification(
+        payment.seller_id,
+        '💰 پول پرداخت امن واریز شد',
+        `مبلغ ${purchaseOrder.seller_received_amount.toLocaleString('fa-IR')} تومان برای پرداخت امن سیمکارت ${payment.sim_number} به حساب شما اضافه شد.`,
+        'success'
+    );
+    
+    console.log('✅ Secure payment released and completed');
 };
 
 export const cancelSecurePayment = async (
@@ -2502,14 +2846,15 @@ export const sendActivationCode = async (
 };
 
 export const getActivationCode = async (purchaseOrderId: number): Promise<string | null> => {
+    // For inactive lines, the activation code is stored in activation_requests table
     const { data, error } = await supabase
-        .from('activation_codes')
-        .select('code')
+        .from('activation_requests')
+        .select('activation_code')
         .eq('purchase_order_id', purchaseOrderId)
         .single();
     
     if (error || !data) return null;
-    return data.code;
+    return data.activation_code;
 };
 
 export const updatePurchaseOrderStatus = async (
@@ -2520,7 +2865,7 @@ export const updatePurchaseOrderStatus = async (
         .from('purchase_orders')
         .update({ status, updated_at: new Date().toISOString() })
         .eq('id', purchaseOrderId);
-    
+
     if (error) {
         console.error('❌ Error updating purchase order status:', error);
         throw new Error(error.message);
@@ -2538,8 +2883,9 @@ export const verifyActivationCode = async (
     // Test code for development
     const IS_TEST_CODE = code === '123456';
     
+    // For inactive lines, get activation code from activation_requests table
     const { data, error } = await supabase
-        .from('activation_codes')
+        .from('activation_requests')
         .select('*')
         .eq('purchase_order_id', purchaseOrderId)
         .single();
@@ -2551,16 +2897,16 @@ export const verifyActivationCode = async (
             return false;
         }
         
-        if (data.code !== code) {
+        if (data.activation_code !== code) {
             console.error('❌ Code does not match');
             return false;
         }
     }
     
-    // Mark as verified
+    // Mark as verified in activation_requests
     if (data && !IS_TEST_CODE) {
         await supabase
-            .from('activation_codes')
+            .from('activation_requests')
             .update({ verified_at: new Date().toISOString() })
             .eq('id', data.id);
     }
@@ -2577,28 +2923,36 @@ export const verifyActivationCode = async (
     // کاهش blocked_balance خریدار (حذف پول بلاک شده)
     const { data: buyerData } = await supabase
         .from('users')
-        .select('blocked_balance')
+        .select('blocked_balance, wallet_balance')
         .eq('id', orderData.buyer_id)
         .single();
     
     if (buyerData) {
+        // Reduce blocked balance and keep wallet balance unchanged
         await supabase
             .from('users')
-            .update({ blocked_balance: (buyerData.blocked_balance || 0) - orderData.buyer_blocked_amount })
+            .update({ 
+                blocked_balance: Math.max(0, (buyerData.blocked_balance || 0) - orderData.buyer_blocked_amount),
+                wallet_balance: buyerData.wallet_balance // Keep wallet balance unchanged
+            })
             .eq('id', orderData.buyer_id);
     }
     
     // Release funds to seller
     const { data: sellerData } = await supabase
         .from('users')
-        .select('wallet_balance')
+        .select('wallet_balance, blocked_balance')
         .eq('id', orderData.seller_id)
         .single();
     
     if (sellerData) {
+        // Add funds to seller's wallet balance
         await supabase
             .from('users')
-            .update({ wallet_balance: (sellerData.wallet_balance || 0) + orderData.seller_received_amount })
+            .update({ 
+                wallet_balance: (sellerData.wallet_balance || 0) + orderData.seller_received_amount,
+                blocked_balance: sellerData.blocked_balance // Keep blocked balance unchanged
+            })
             .eq('id', orderData.seller_id);
         
         // ثبت تراکنش برای فروشنده
@@ -2610,6 +2964,15 @@ export const verifyActivationCode = async (
             date: new Date().toISOString()
         });
     }
+    
+    // Record transaction for buyer (deduction from blocked balance)
+    await supabase.from('transactions').insert({
+        user_id: orderData.buyer_id,
+        type: 'purchase_blocked',
+        amount: -orderData.buyer_blocked_amount,
+        description: `استفاده از مبلغ بلوکه شده برای خرید سیمکارت (سفارش #${purchaseOrderId})`,
+        date: new Date().toISOString()
+    });
     
     // Update purchase order status to completed
     await supabase
@@ -2628,7 +2991,7 @@ export const verifyActivationCode = async (
     // Notify seller about payment release
     await createNotification(
         orderData.seller_id,
-        '💰 پول به حساب رشت بررسی',
+        '💰 پول به حساب شما واریز شد',
         `مبلغ ${orderData.seller_received_amount.toLocaleString('fa-IR')} تومان بعد از کسر کمیسیون به کیف پول شما اضافه شد.`,
         'success'
     );
@@ -3181,10 +3544,12 @@ export const sendActivationCodeForZeroLine = async (
     
     console.log('📤 Request data found:', requestData);
     
+    // Update activation request with the activation code
     const { error: updateError } = await supabase
         .from('activation_requests')
         .update({
             activation_code: activationCode,
+            status: 'activated', // Use allowed status
             sent_at: new Date().toISOString()
         })
         .eq('id', activationRequestId);
@@ -3194,13 +3559,27 @@ export const sendActivationCodeForZeroLine = async (
         throw new Error(`خطا در به‌روز رسانی کد: ${updateError.message}`);
     }
     
+    // Update the purchase order status to code_sent
+    const { error: orderUpdateError } = await supabase
+        .from('purchase_orders')
+        .update({
+            status: 'code_sent',
+            updated_at: new Date().toISOString()
+        })
+        .eq('id', requestData.purchase_order_id);
+    
+    if (orderUpdateError) {
+        console.error('❌ Order update error:', orderUpdateError);
+        throw new Error(`خطا در به‌روز رسانی سفارش: ${orderUpdateError.message}`);
+    }
+    
     console.log('✅ Code updated successfully');
     
     // اطلاع دادن خریدار
     await createNotification(
         requestData.buyer_id,
         '📝 کد فعال‌سازی دریافت شد',
-        `کد فعال‌سازی برای سیمکارت ${requestData.sim_number} توسط فروشنده ارسال شد.`,
+        `کد فعال‌سازی برای سیمکارت ${requestData.sim_number} توسط فروشنده ارسال شد. لطفاً به پنل خریدار مراجعه کرده و کد را تایید کنید.`,
         'success'
     );
 };
@@ -3542,6 +3921,32 @@ const api = {
     approveActivationRequest,
     rejectActivationRequest,
     selectLineTypeAndDeliveryMethod,
+    finalizePurchaseAfterLineDelivery: async (purchaseOrderId: number) => {
+        // Import and call the finalize function dynamically
+        const { finalizePurchaseAfterLineDelivery } = await import('./auction-guarantee-system');
+        return finalizePurchaseAfterLineDelivery(purchaseOrderId);
+    },
+    checkGuaranteeDepositBalance: async (userId: string, auctionId: number, basePrice: number, simId?: number) => {
+        // Import and call the check guarantee deposit balance function dynamically
+        const { checkGuaranteeDepositBalance } = await import('./auction-guarantee-system');
+        return checkGuaranteeDepositBalance(userId, auctionId, basePrice, simId);
+    },
+    placeBidWithGuaranteeDeposit: async (simId: number, auctionId: number, bidderId: string, amount: number, basePrice: number) => {
+        // Import and call the place bid function dynamically
+        const { placeBidWithGuaranteeDeposit } = await import('./auction-guarantee-system');
+        return placeBidWithGuaranteeDeposit(simId, auctionId, bidderId, amount, basePrice);
+    },
+    checkAndProcessPaymentDeadlines: async () => {
+        // Import and call the check and process payment deadlines function dynamically
+        const { checkAndProcessPaymentDeadlines } = await import('./auction-guarantee-system');
+        return checkAndProcessPaymentDeadlines();
+    },
+    processAuctionEnding: async (auctionId: number) => {
+        // Import and call the process auction ending function dynamically
+        const { processAuctionEnding } = await import('./auction-guarantee-system');
+        return processAuctionEnding(auctionId);
+    },
+    completeSecurePaymentAfterDelivery,
 };
 
 export default api;

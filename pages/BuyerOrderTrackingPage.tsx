@@ -30,7 +30,8 @@ const BuyerOrderTrackingPage: React.FC = () => {
             // بارگذاری کدهای فعالسازی برای خطوط صفر
             for (const order of buyerOrders) {
                 if (order.line_type === 'inactive' && order.status === 'code_sent') {
-                    await loadActivationCode(order.id);
+                    // Always try to load the activation code, even if it's already loaded
+                    loadActivationCode(order.id);
                 }
             }
         } catch (error) {
@@ -45,6 +46,14 @@ const BuyerOrderTrackingPage: React.FC = () => {
             const code = await api.getActivationCode(orderId);
             if (code) {
                 setActivationCodes(prev => ({...prev, [orderId]: code}));
+            } else {
+                // If code is not found, try again after a short delay
+                setTimeout(async () => {
+                    const retryCode = await api.getActivationCode(orderId);
+                    if (retryCode) {
+                        setActivationCodes(prev => ({...prev, [orderId]: retryCode}));
+                    }
+                }, 1000);
             }
         } catch (error) {
             console.error('Error loading activation code:', error);
@@ -86,11 +95,20 @@ const BuyerOrderTrackingPage: React.FC = () => {
     };
 
     const handleConfirmCode = async (order: PurchaseOrder) => {
+        // Get the actual activation code for this order
+        const actualCode = activationCodes[order.id];
+        if (!actualCode) {
+            showNotification('کد فعالسازی یافت نشد', 'error');
+            return;
+        }
+        
         try {
-            const verified = await api.verifyActivationCode(order.id, '123456');
+            const verified = await api.verifyActivationCode(order.id, actualCode);
             if (verified) {
                 showNotification('✅ کد تایید شد و پول به فروشنده واریز شد', 'success');
                 loadOrders();
+            } else {
+                showNotification('کد وارد شده اشتباه است', 'error');
             }
         } catch (error) {
             showNotification('خطا در تایید کد', 'error');
@@ -186,29 +204,37 @@ const BuyerOrderTrackingPage: React.FC = () => {
                                 </div>
 
                                 {/* نمایش کد برای خطوط صفر */}
-                                {order.line_type === 'inactive' && order.status === 'code_sent' && activationCodes[order.id] && (
+                                {order.line_type === 'inactive' && order.status === 'code_sent' && (
                                     <div className="border-t pt-4 mt-4">
-                                        <div className="bg-green-50 dark:bg-green-900/30 rounded-lg p-4 mb-4">
-                                            <p className="text-sm font-semibold mb-2">🔐 کد فعالسازی دریافتی:</p>
-                                            <p className="text-3xl font-bold text-center text-green-700 dark:text-green-300 tracking-wider">
-                                                {activationCodes[order.id]}
-                                            </p>
-                                        </div>
+                                        {activationCodes[order.id] ? (
+                                            <div className="bg-green-50 dark:bg-green-900/30 rounded-lg p-4 mb-4">
+                                                <p className="text-sm font-semibold mb-2">🔐 کد فعالسازی دریافتی:</p>
+                                                <p className="text-3xl font-bold text-center text-green-700 dark:text-green-300 tracking-wider">
+                                                    {activationCodes[order.id]}
+                                                </p>
+                                            </div>
+                                        ) : (
+                                            <div className="bg-yellow-50 dark:bg-yellow-900/30 rounded-lg p-4 mb-4">
+                                                <p className="text-sm font-semibold mb-2">⏳ در حال بارگذاری کد فعالسازی...</p>
+                                            </div>
+                                        )}
 
-                                        <div className="grid grid-cols-2 gap-3 mb-4">
-                                            <button
-                                                onClick={() => handleConfirmCode(order)}
-                                                className="bg-green-600 text-white px-4 py-3 rounded-lg hover:bg-green-700 font-semibold"
-                                            >
-                                                ✅ تایید کد و تکمیل
-                                            </button>
-                                            <button
-                                                onClick={() => setShowProblemForm(prev => ({...prev, [order.id]: !prev[order.id]}))}
-                                                className="bg-red-600 text-white px-4 py-3 rounded-lg hover:bg-red-700 font-semibold"
-                                            >
-                                                ⚠️ گزارش مشکل
-                                            </button>
-                                        </div>
+                                        {activationCodes[order.id] && (
+                                            <div className="grid grid-cols-2 gap-3 mb-4">
+                                                <button
+                                                    onClick={() => handleConfirmCode(order)}
+                                                    className="bg-green-600 text-white px-4 py-3 rounded-lg hover:bg-green-700 font-semibold"
+                                                >
+                                                    ✅ تایید کد و تکمیل
+                                                </button>
+                                                <button
+                                                    onClick={() => setShowProblemForm(prev => ({...prev, [order.id]: !prev[order.id]}))}
+                                                    className="bg-red-600 text-white px-4 py-3 rounded-lg hover:bg-red-700 font-semibold"
+                                                >
+                                                    ⚠️ گزارش مشکل
+                                                </button>
+                                            </div>
+                                        )}
 
                                         {showProblemForm[order.id] && (
                                             <div className="mt-4 space-y-2 p-4 bg-gray-50 dark:bg-gray-700 rounded">

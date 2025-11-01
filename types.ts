@@ -10,6 +10,7 @@ export interface User {
   phoneNumber?: string; // Already optional
   package_id?: number;
   // Temporary fields for OTP verification simulation are no longer needed
+  total_blocked_amount?: number; // Total amount blocked across all auctions
 }
 
 export type SimCardTypeOption = 'fixed' | 'auction' | 'inquiry';
@@ -19,6 +20,70 @@ export interface Bid {
   amount: number;
   date: string;
 }
+
+// New Auction Guarantee Deposit System Types
+export interface AuctionParticipant {
+  id: number;
+  auction_id: number;
+  sim_card_id: number;
+  user_id: string;
+  user_name?: string; // For display purposes
+  highest_bid: number;
+  bid_count: number;
+  rank: number;
+  guarantee_deposit_amount: number;
+  guarantee_deposit_blocked: boolean;
+  is_top_3: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GuaranteeDeposit {
+  id: number;
+  user_id: string;
+  auction_id: number;
+  sim_card_id: number;
+  amount: number;
+  status: 'blocked' | 'released' | 'burned';
+  reason?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuctionWinnerQueue {
+  id: number;
+  auction_id: number;
+  sim_card_id: number;
+  winner_rank: number;
+  user_id: string;
+  highest_bid: number;
+  payment_status: 'pending' | 'completed' | 'failed' | 'burned';
+  remaining_amount: number;
+  payment_deadline: string;
+  payment_completed_at?: string;
+  notification_sent_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuctionPayment {
+  id: number;
+  auction_id: number;
+  sim_card_id: number;
+  user_id: string;
+  winner_rank: number;
+  bid_amount: number;
+  guarantee_deposit_amount: number;
+  remaining_amount: number;
+  status: 'pending' | 'completed' | 'failed';
+  payment_method?: string;
+  transaction_id?: number;
+  paid_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type AuctionStatus = 'active' | 'ended' | 'pending_payment' | 'completed' | 'cancelled';
 
 export interface SimCard {
   id: number;
@@ -37,6 +102,10 @@ export interface SimCard {
     current_bid: number;
     highest_bidder_id?: string;
     bids: Bid[];
+    status?: AuctionStatus;
+    base_price?: number;
+    guarantee_deposit_amount?: number;
+    final_winner_id?: string;
   };
   is_active?: boolean; // New field for active/inactive status
 }

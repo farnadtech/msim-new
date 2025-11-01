@@ -1,11 +1,16 @@
 import React from 'react';
 import { useData } from '../hooks/useData';
+import { useAuth } from '../hooks/useAuth';
 import SimCard from '../components/SimCard';
 import RecentlySoldSims from '../components/RecentlySoldSims';
+import useAuctionPaymentChecker from '../hooks/useAuctionPaymentChecker';
 import { SimCard as SimCardType } from '../types';
 
 const AuctionsPage: React.FC = () => {
   const { simCards, loading } = useData();
+  
+  // Check and process payment deadlines automatically
+  useAuctionPaymentChecker();
   
   const isRecentlySold = (sim: SimCardType) => {
     return sim.status === 'sold' && sim.sold_date && new Date(sim.sold_date).getTime() > Date.now() - 24 * 60 * 60 * 1000;
@@ -22,14 +27,18 @@ const AuctionsPage: React.FC = () => {
             </div>
             
             {loading ? (
-                <div className="text-center">در حال بارگذاری...</div>
+                <div className="text-center">درحال بارگذاری...</div>
             ) : auctionSims.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-                {auctionSims.map(sim => <SimCard key={sim.id} sim={sim} />)}
+                {auctionSims.map(sim => (
+                  <div key={sim.id}>
+                    <SimCard sim={sim} />
+                  </div>
+                ))}
                 </div>
             ) : (
                 <div className="text-center py-10 bg-white dark:bg-gray-800 rounded-lg shadow-md">
-                <p className="text-lg text-gray-600 dark:text-gray-400">در حال حاضر هیچ حراجی فعالی وجود ندارد.</p>
+                <p className="text-lg text-gray-600 dark:text-gray-400">درحال حاضر هیچ حراجی فعالی وجود ندارد.</p>
                 </div>
             )}
             

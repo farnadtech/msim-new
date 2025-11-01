@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useState } from 'react';
 // FIX: Upgrading react-router-dom from v5 to v6.
 import { NavLink, Route, Routes, useNavigate } from 'react-router-dom';
 import DashboardLayout from '../components/DashboardLayout';
@@ -823,6 +824,7 @@ const SecurePaymentPage = ({ userId }: { userId: string }) => {
 };
 
 const SellerDashboard: React.FC = () => {
+    const [isLinesMenuOpen, setIsLinesMenuOpen] = useState(false);
     const { user, refreshUser, loading } = useAuth();
     const { addSimCard, processTransaction, updateUserPackage } = useData();
     const navigate = useNavigate();
@@ -899,15 +901,36 @@ const SellerDashboard: React.FC = () => {
 
     const sidebar = (
         <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-md">
-            <h3 className="font-bold text-lg mb-4">پنل فروشنده</h3>
+            <h3 className="font-bold text-lg mb-4">🏪 پنل فروشنده</h3>
             <nav className="space-y-2">
-                <NavItem to="." end>داشبورد</NavItem>
-                <NavItem to="simcards">سیمکارت های من</NavItem>
-                <NavItem to="add-sim">ثبت سیمکارت جدید</NavItem>
-                <NavItem to="wallet">کیف پول</NavItem>
-                <NavItem to="packages">خرید پکیج</NavItem>
-                <NavItem to="inactive-orders">📱 خطوط صفر</NavItem>
-                <NavItem to="active-orders">📳 خطوط فعال</NavItem>
+                <NavItem to="." end>🏠 داشبورد</NavItem>
+                <NavItem to="simcards">📱 سیمکارت های من</NavItem>
+                <NavItem to="add-sim">➕ ثبت سیمکارت جدید</NavItem>
+                <NavItem to="wallet">💰 کیف پول</NavItem>
+                <NavItem to="packages">📦 خرید پکیج</NavItem>
+                
+                {/* Collapsible Lines Menu */}
+                <div className="space-y-1">
+                    <button 
+                        onClick={() => setIsLinesMenuOpen(!isLinesMenuOpen)}
+                        className="w-full text-left px-4 py-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex justify-between items-center"
+                    >
+                        <span>📞 مدیریت خطوط</span>
+                        <span>{isLinesMenuOpen ? '▲' : '▼'}</span>
+                    </button>
+                    
+                    {isLinesMenuOpen && (
+                        <div className="pl-4 space-y-1 border-r-2 border-blue-500">
+                            <NavItem to="inactive-orders" className="block px-4 py-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700">
+                                📱 خطوط صفر
+                            </NavItem>
+                            <NavItem to="active-orders" className="block px-4 py-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700">
+                                📳 خطوط فعال
+                            </NavItem>
+                        </div>
+                    )}
+                </div>
+                
                 <NavItem to="secure-payments">🔒 پرداخت امن</NavItem>
                 <NavItem to="/notifications">🔔 اعلانات</NavItem>
             </nav>

@@ -7,6 +7,7 @@ import { SimCard as SimCardType, User } from '../types';
 import { useNotification } from '../contexts/NotificationContext';
 import LineDeliveryMethodModal from '../components/LineDeliveryMethodModal';
 import api from '../services/api-supabase';
+import { supabase } from '../services/supabase';
 
 const CountdownTimer: React.FC<{ endTime: string }> = ({ endTime }) => {
     const calculateTimeLeft = () => {
@@ -63,6 +64,7 @@ const SimDetailsPage: React.FC = () => {
     const [isConfirmModalOpen, setConfirmModalOpen] = useState(false);
     const [isPurchaseCompleted, setIsPurchaseCompleted] = useState(false);
     const [isDeliveryModalOpen, setDeliveryModalOpen] = useState(false);
+    const [showAuctionPaymentModal, setShowAuctionPaymentModal] = useState(false);
 
     useEffect(() => {
         if (!loading && id) {
@@ -82,55 +84,28 @@ const SimDetailsPage: React.FC = () => {
         }
     }, [id, simCards, users, loading, navigate]);
 
-    // Auto-complete auction purchase for the winner when auction ends
+    // Check auction status - only check if auction has ended and user is winner
+    // Do NOT auto-complete - let user click the button
     useEffect(() => {
-        const processAuction = async () => {
-            if (sim && sim.type === 'auction' && sim.auction_details && sim.status === 'available') {
+        const checkAuctionStatus = async () => {
+            if (sim && sim.type === 'auction' && sim.auction_details && currentUser) {
                 const isAuctionEnded = new Date(sim.auction_details.end_time) < new Date();
-                const isCurrentUserWinner = currentUser?.id === sim.auction_details.highest_bidder_id;
+                const isCurrentUserWinner = currentUser.id === sim.auction_details.highest_bidder_id;
                 
                 if (isAuctionEnded && isCurrentUserWinner) {
                     // Check if purchase is already completed
-                    const isCompleted = await api.isAuctionPurchaseCompleted(sim.id, currentUser.id);
-                    setIsPurchaseCompleted(isCompleted);
-                    
-                    if (!isCompleted) {
-                        // Automatically complete the purchase for the winner
-                        if (!currentUser) return;
-                        
-                        setIsProcessing(true);
-                        try {
-                            // Add an additional check to make sure the auction hasn't been processed by another process
-                            const refreshedSim = await api.getSimCards();
-                            const currentSim = refreshedSim.find(s => s.id === sim.id);
-                            
-                            if (currentSim && currentSim.status === 'sold') {
-                                // Auction was already processed, update state
-                                setIsPurchaseCompleted(true);
-                                setSim({...sim, status: 'sold'});
-                                showNotification('حراجی قبلاً تکمیل شده است.', 'info');
-                                return;
-                            }
-                            
-                            await api.completeAuctionPurchaseForWinner(sim.id, currentUser.id);
-                            showNotification('حراجی به پایان رسید و خرید به طور خودکار انجام شد!', 'success');
-                            // Refresh the sim data
-                            const updatedSim = {...sim, status: 'sold'};
-                            setSim(updatedSim);
-                            setIsPurchaseCompleted(true);
-                        } catch (err) {
-                            if (err instanceof Error) showNotification(err.message, 'error');
-                            else showNotification('خطایی در هنگام تکمیل خرید رخ داد.', 'error');
-                        } finally {
-                            setIsProcessing(false);
-                        }
+                    try {
+                        const isCompleted = await api.isAuctionPurchaseCompleted(sim.id, currentUser.id);
+                        setIsPurchaseCompleted(isCompleted);
+                    } catch (err) {
+                        console.error('Error checking auction status:', err);
                     }
                 }
             }
         };
         
-        processAuction();
-    }, [sim, currentUser, showNotification]);
+        checkAuctionStatus();
+    }, [sim?.id, currentUser?.id]);
 
     if (loading) {
         return <div className="text-center py-20">در حال بارگذاری...</div>;
@@ -164,15 +139,119 @@ const SimDetailsPage: React.FC = () => {
             showNotification('شما نمی توانید سیمکارت خود را بخرید.', 'error');
             return;
         }
+        // Show payment confirmation modal instead of auto-completing
+        setShowAuctionPaymentModal(true);
+    };
+
+    const completeAuctionPayment = async () => {
+        if (!currentUser || !sim) {
+            navigate('/login');
+            return;
+        }
         setIsProcessing(true);
         try {
+            // Complete the payment - this will:
+            // 1. Release winner's guarantee deposit
+            // 2. Block the bid amount
+            // 3. Create purchase order
             await api.completeAuctionPurchaseForWinner(sim.id, currentUser.id);
-            showNotification('خرید با موفقیت انجام شد!', 'success');
+            
+            // Get auction ID for releasing other participants' deposits
+            const { data: auctionData } = await supabase
+                .from('auction_details')
+                .select('id')
+                .eq('sim_card_id', sim.id)
+                .single();
+            
+            const auctionId = auctionData?.id;
+            
+            // Release guarantee deposits for non-winners
+            if (auctionId) {
+                console.log('🔓 Releasing guarantee deposits for non-winners in auction:', auctionId);
+                
+                // Get all participants except the winner
+                const { data: allParticipants } = await supabase
+                    .from('auction_participants')
+                    .select('*')
+                    .eq('auction_id', auctionId)
+                    .neq('user_id', currentUser.id); // Exclude winner
+                
+                if (allParticipants && allParticipants.length > 0) {
+                    console.log(`🔓 Found ${allParticipants.length} non-winners to refund`);
+                    
+                    for (const participant of allParticipants) {
+                        if (participant.guarantee_deposit_amount > 0 && participant.guarantee_deposit_blocked) {
+                            // Get current user balance
+                            const { data: userData } = await supabase
+                                .from('users')
+                                .select('wallet_balance, blocked_balance')
+                                .eq('id', participant.user_id)
+                                .single();
+                            
+                            if (userData) {
+                                const newBlockedBalance = Math.max(0, (userData.blocked_balance || 0) - participant.guarantee_deposit_amount);
+                                
+                                console.log(`✅ Releasing ${participant.guarantee_deposit_amount.toLocaleString('fa-IR')} for user ${participant.user_id}`);
+                                
+                                // Update user's blocked balance
+                                await supabase
+                                    .from('users')
+                                    .update({
+                                        blocked_balance: newBlockedBalance
+                                    })
+                                    .eq('id', participant.user_id);
+                                
+                                // Mark deposit as released
+                                await supabase
+                                    .from('guarantee_deposits')
+                                    .update({
+                                        status: 'released',
+                                        reason: 'برنده خرید را تکمیل کرد - ضمانت آزاد شد',
+                                        updated_at: new Date().toISOString()
+                                    })
+                                    .eq('user_id', participant.user_id)
+                                    .eq('auction_id', auctionId)
+                                    .eq('status', 'blocked');
+                                
+                                // Update participant record
+                                await supabase
+                                    .from('auction_participants')
+                                    .update({
+                                        guarantee_deposit_blocked: false,
+                                        updated_at: new Date().toISOString()
+                                    })
+                                    .eq('id', participant.id);
+                                
+                                // Create transaction record
+                                await supabase
+                                    .from('transactions')
+                                    .insert({
+                                        user_id: participant.user_id,
+                                        type: 'credit_released',
+                                        amount: participant.guarantee_deposit_amount,
+                                        description: `آزادسازی ضمانت حراجی سیمکارت ${sim.number}`,
+                                        date: new Date().toISOString()
+                                    });
+                            }
+                        }
+                    }
+                    
+                    console.log('✅ All non-winner deposits released successfully!');
+                }
+            }
+            
+            showNotification('خرید تکمیل شد! اطلاعات تحویل خط را دنبال کنید.', 'success');
             setIsPurchaseCompleted(true);
-            // Refresh the sim data
-            const updatedSim = {...sim, status: 'sold'};
-            setSim(updatedSim);
+            setShowAuctionPaymentModal(false);
+            
+            // Check line type
+            if (sim && !sim.is_active) {
+                setDeliveryModalOpen(true);
+            } else {
+                setTimeout(() => navigate('/buyer'), 1500);
+            }
         } catch (err) {
+            console.error('❌ Error completing auction payment:', err);
             if (err instanceof Error) showNotification(err.message, 'error');
             else showNotification('خطایی در هنگام خرید رخ داد.', 'error');
         } finally {
@@ -217,14 +296,81 @@ const SimDetailsPage: React.FC = () => {
         
         setIsProcessing(true);
         try {
-            // First, create the purchase order
-            const lineType = sim.is_active ? 'active' : 'inactive';
+            // For auction SIM cards, we need to check if this is for an auction winner
+            if (sim.type === 'auction') {
+                // Check if user is the auction winner
+                const isWinner = sim.auction_details?.highest_bidder_id === currentUser.id;
+                const isAuctionEnded = sim.auction_details && new Date(sim.auction_details.end_time) < new Date();
+                
+                if (isWinner && isAuctionEnded) {
+                    // This is an auction winner selecting delivery method
+                    // We should NOT mark the SIM as sold yet, just create the purchase order
+                    const lineType = sim.is_active ? 'active' : 'inactive';
+                    
+                    // Create purchase order without marking SIM as sold
+                    const { data: purchaseOrder, error: orderError } = await supabase
+                        .from('purchase_orders')
+                        .insert({
+                            sim_card_id: sim.id,
+                            buyer_id: currentUser.id,
+                            seller_id: sim.seller_id,
+                            line_type: lineType,
+                            status: 'pending',
+                            price: sim.auction_details?.current_bid || 0,
+                            commission_amount: (sim.auction_details?.current_bid || 0) * 0.02,
+                            seller_received_amount: (sim.auction_details?.current_bid || 0) * 0.98,
+                            buyer_blocked_amount: sim.auction_details?.current_bid || 0,
+                            created_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString()
+                        })
+                        .select()
+                        .single();
+                    
+                    if (orderError) {
+                        throw new Error('خطا در ایجاد سفارش خرید: ' + orderError.message);
+                    }
+                    
+                    // For zero-line SIMs, create activation request
+                    if (!sim.is_active) {
+                        await api.createActivationRequest(
+                            purchaseOrder.id,
+                            sim.id,
+                            currentUser.id,
+                            sim.seller_id,
+                            sim.number,
+                            currentUser.name,
+                            seller?.name || 'ناشناس'
+                        );
+                        
+                        if (method === 'activation_code') {
+                            showNotification(
+                                'خریدتان ثبت شد. لطفاً برای دریافت کد فعالسازی منتظر بمانید.',
+                                'success'
+                            );
+                        } else {
+                            showNotification(
+                                'خریدتان ثبت شد. فروشنده باید مدارک را ارسال کند.',
+                                'success'
+                            );
+                        }
+                    }
+                    
+                    setDeliveryModalOpen(false);
+                    // Navigate to buyer dashboard to track the purchase
+                    navigate('/buyer');
+                    return;
+                }
+            }
             
-            // Execute the purchase which will create a purchase order
-            await purchaseSim(sim.id, currentUser.id);
-            
-            // Create activation request for zero-line SIMs
+            // For non-auction SIM cards, use the existing logic
+            // Check if this is an inactive line (zero line) - show delivery method selection
             if (!sim.is_active) {
+                // Create activation request for zero-line SIMs
+                const lineType = sim.is_active ? 'active' : 'inactive';
+                
+                // Execute the purchase which will create a purchase order
+                await purchaseSim(sim.id, currentUser.id);
+                
                 // Get the purchase order we just created
                 const purchaseOrders = await api.getPurchaseOrders(currentUser.id, 'buyer');
                 const latestOrder = purchaseOrders.find(
@@ -256,6 +402,10 @@ const SimDetailsPage: React.FC = () => {
                         );
                     }
                 }
+            } else {
+                // For active lines, just process the purchase normally
+                await purchaseSim(sim.id, currentUser.id);
+                showNotification('خرید با موفقیت انجام شد!', 'success');
             }
             
             setDeliveryModalOpen(false);
@@ -285,10 +435,77 @@ const SimDetailsPage: React.FC = () => {
             return;
         }
         try {
-            await placeBid(sim.id, currentUser.id, amount);
+            // Get the auction details ID from sim.auction_details
+            let auctionDetailId = 0;
+            
+            if (sim.auction_details) {
+                const { data: auctionData, error: auctionError } = await supabase
+                    .from('auction_details')
+                    .select('id')
+                    .eq('sim_card_id', sim.id)
+                    .single();
+                
+                if (auctionError) {
+                    console.error('❌ Error fetching auction details:', auctionError);
+                    throw new Error('خطا در دریافت جزئیات حراجی: ' + auctionError.message);
+                }
+                
+                if (auctionData) {
+                    auctionDetailId = auctionData.id;
+                    console.log('✅ Found auction details ID:', auctionDetailId, 'for SIM:', sim.id);
+                } else {
+                    throw new Error('جزئیات حراجی یافت نشد');
+                }
+            } else {
+                throw new Error('حراجی فاقد جزئیات است');
+            }
+
+            // CRITICAL: Check if user has sufficient balance for guarantee deposit
+            console.log('🔍 BALANCE CHECK PARAMS:', {
+                userId: currentUser.id,
+                auctionId: auctionDetailId,
+                basePrice: sim.price,
+                simId: sim.id
+            });
+            
+            const { hasBalance, requiredAmount, currentBalance } = await api.checkGuaranteeDepositBalance(
+                currentUser.id,
+                auctionDetailId,
+                sim.price,
+                sim.id
+            );
+
+            console.log('💰 BALANCE CHECK RESULT:', { hasBalance, requiredAmount, currentBalance });
+
+            if (!hasBalance) {
+                showNotification(
+                    `موجودی کافی نیست. مورد نیاز: ${requiredAmount.toLocaleString('fa-IR')} تومان`,
+                    'error'
+                );
+                setIsProcessing(false);
+                return;
+            }
+
+            console.log('✅ Balance check passed, placing bid...');
+            
+            // Place bid with guarantee deposit mechanism
+            await api.placeBidWithGuaranteeDeposit(
+                sim.id,
+                auctionDetailId,
+                currentUser.id,
+                amount,
+                sim.price
+            );
+            
             showNotification('پیشنهاد شما با موفقیت ثبت شد.', 'success');
             setBidAmount('');
+            
+            // IMPORTANT: Wait a bit before refreshing to ensure DB has committed the transaction
+            setTimeout(() => {
+                window.location.reload();
+            }, 500);
         } catch (err) {
+            console.error('❌ Error placing bid:', err);
             if (err instanceof Error) showNotification(err.message, 'error');
             else showNotification('خطایی در هنگام ثبت پیشنهاد رخ داد.', 'error');
         } finally {
@@ -415,6 +632,108 @@ const SimDetailsPage: React.FC = () => {
                     )}
                 </div>
             </div>
+
+            {/* Comprehensive Auction Information Section */}
+            {sim.type === 'auction' && sim.auction_details && (
+                <div className="mt-12 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-lg p-8 border-2 border-blue-200 dark:border-blue-800">
+                    <h2 className="text-3xl font-bold text-gray-800 dark:text-gray-100 mb-6">📋 توضیحات کامل حراجی</h2>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        {/* How Auction Works */}
+                        <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-md">
+                            <h3 className="text-xl font-bold text-blue-600 dark:text-blue-400 mb-4">🔍 نحوه عملکرد حراجی</h3>
+                            <ul className="space-y-3 text-gray-700 dark:text-gray-300">
+                                <li className="flex items-start">
+                                    <span className="text-lg ml-3">1️⃣</span>
+                                    <span><strong>ثبت پیشنهاد:</strong> شما می‌توانید پیشنهاد‌های متعددی را ثبت کنید.</span>
+                                </li>
+                                <li className="flex items-start">
+                                    <span className="text-lg ml-3">2️⃣</span>
+                                    <span><strong>بالاترین پیشنهاد برنده است:</strong> کسی که بالاترین پیشنهاد را ثبت کند به عنوان برنده انتخاب می‌شود.</span>
+                                </li>
+                                <li className="flex items-start">
+                                    <span className="text-lg ml-3">3️⃣</span>
+                                    <span><strong>زمان پایان:</strong> حراجی در تاریخ و ساعت مشخص‌شده پایان می‌یابد.</span>
+                                </li>
+                                <li className="flex items-start">
+                                    <span className="text-lg ml-33">4️⃣</span>
+                                    <span><strong>پرداخت موقت:</strong> پس از پایان حراجی، برنده باید در مدت 48 ساعت پرداخت را انجام دهد.</span>
+                                </li>
+                            </ul>
+                        </div>
+
+                        {/* Guarantee Deposit Info */}
+                        <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-md">
+                            <h3 className="text-xl font-bold text-orange-600 dark:text-orange-400 mb-4">💰 حق ضمانت نامه</h3>
+                            <div className="space-y-4">
+                                <div>
+                                    <p className="text-sm text-gray-600 dark:text-gray-400">مبلغ حق ضمانت (5% از قیمت پایه)</p>
+                                    <p className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                                        {(sim.price * 0.05).toLocaleString('fa-IR')} تومان
+                                    </p>
+                                </div>
+                                <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                                    هنگام ثبت پیشنهاد اول، 5% از قیمت پایه به‌طور موقت از حساب شما کسر می‌شود. این مبلغ برای حفاظت از جدی‌بودن شرکت‌کنندگان است.
+                                </p>
+                                <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                                    اگر برنده نشوید، این مبلغ به‌طور خودکار به حساب شما برگردانده می‌شود.
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Payment Information */}
+                        <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-md">
+                            <h3 className="text-xl font-bold text-green-600 dark:text-green-400 mb-4">🏆 اگر برنده شوید</h3>
+                            <ul className="space-y-3 text-gray-700 dark:text-gray-300">
+                                <li className="flex items-start">
+                                    <span className="text-lg ml-3">✓</span>
+                                    <span>شما به عنوان برنده انتخاب می‌شوید.</span>
+                                </li>
+                                <li className="flex items-start">
+                                    <span className="text-lg ml-3">✓</span>
+                                    <span>فرصت 48 ساعتی برای تکمیل پرداخت دارید.</span>
+                                </li>
+                                <li className="flex items-start">
+                                    <span className="text-lg ml-3">✓</span>
+                                    <span>بعد از پرداخت، سیمکارت برای تحویل آماده می‌شود.</span>
+                                </li>
+                                <li className="flex items-start">
+                                    <span className="text-lg ml-3">✓</span>
+                                    <span>حق ضمانت نامه به حساب شما برگردانده می‌شود.</span>
+                                </li>
+                            </ul>
+                        </div>
+
+                        {/* Commission Info */}
+                        <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-md">
+                            <h3 className="text-xl font-bold text-purple-600 dark:text-purple-400 mb-4">💳 هزینه‌ها</h3>
+                            <div className="space-y-4">
+                                <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded">
+                                    <p className="text-sm text-gray-600 dark:text-gray-400">کمیسیون سایت (2%)</p>
+                                    <p className="text-lg font-bold text-purple-600 dark:text-purple-400">
+                                        {(finalPrice * 0.02).toLocaleString('fa-IR')} تومان
+                                    </p>
+                                </div>
+                                <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+                                    کمیسیون 2 درصد از قیمت نهایی خریداری محاسبه می‌شود. این مبلغ برای حفاظت و بهبود سایت استفاده می‌شود.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Important Rules */}
+                    <div className="mt-8 bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 p-6 rounded">
+                        <h3 className="text-lg font-bold text-red-700 dark:text-red-300 mb-4">⚠️ قوانین مهم</h3>
+                        <ul className="space-y-2 text-sm text-red-700 dark:text-red-300">
+                            <li>• نمی‌توانید روی سیمکارت خود پیشنهاد ثبت کنید.</li>
+                            <li>• پیشنهاد شما باید بیشتر از پیشنهاد قبلی باشد.</li>
+                            <li>درصورت عدم پرداخت در 48 ساعت، حق ضمانت نامه ضبط می‌شود.</li>
+                            <li>درصورت عدم پرداخت، برنده بعدی انتخاب می‌شود.</li>
+                            <li>موجودی کافی برای ثبت پیشنهاد و حق ضمانت الزامی است.</li>
+                        </ul>
+                    </div>
+                </div>
+            )}
             {isConfirmModalOpen && sim.type === 'fixed' && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
                     <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md text-center">
@@ -429,6 +748,34 @@ const SimDetailsPage: React.FC = () => {
                             </button>
                             <button onClick={executePurchase} className="px-6 py-2 rounded-lg text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400" disabled={isProcessing}>
                                 {isProcessing ? '...' : 'تایید و خرید'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {showAuctionPaymentModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md text-center">
+                        <h3 className="text-xl font-bold mb-4">تکمیل خریدحراجی</h3>
+                        <p className="mb-4 text-gray-700 dark:text-gray-300">آیا برای تکمیل خرید و پرداخت مبلغ زیر اطمینان دارید؟</p>
+                        <div className="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-lg mb-6">
+                            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">شماره سیمکارت</p>
+                            <p className="font-bold text-lg tracking-wider mb-4" style={{direction: 'ltr'}}>{sim.number}</p>
+                            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">مبلغ قابل پرداخت</p>
+                            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                                {sim.auction_details?.current_bid?.toLocaleString('fa-IR') || '0'} تومان
+                            </p>
+                            <div className="mt-4 p-3 bg-orange-100 dark:bg-orange-900/30 rounded text-sm text-orange-800 dark:text-orange-300">
+                                <p>💡 توجه: این مبلغ کامل شامل حق ضمانت و پیشنهاد شما می‌شود</p>
+                                <p className="mt-1">💰 2% کمیسیون سایت از این مبلغ کسر خواهد شد</p>
+                            </div>
+                        </div>
+                        <div className="flex justify-center space-x-4 space-x-reverse">
+                            <button onClick={() => setShowAuctionPaymentModal(false)} className="bg-gray-300 dark:bg-gray-600 px-6 py-2 rounded-lg" disabled={isProcessing}>
+                                انصراف
+                            </button>
+                            <button onClick={completeAuctionPayment} className="px-6 py-2 rounded-lg text-white bg-green-600 hover:bg-green-700 disabled:bg-gray-400" disabled={isProcessing}>
+                                {isProcessing ? 'درحال پردازش...' : 'تایید و پرداخت'}
                             </button>
                         </div>
                     </div>

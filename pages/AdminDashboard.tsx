@@ -10,6 +10,7 @@ import AdminPaymentReceipts from './AdminPaymentReceipts';
 import AdminCommissionsReport from './AdminCommissionsReport';
 import AdminVerificationPanel from './AdminVerificationPanel';
 import AdminActivationRequestsPanel from './AdminActivationRequestsPanel';
+import AdminAuctionManagement from './AdminAuctionManagement';
 
 const AdminSeedNotice: React.FC<{ onSeeded: () => void }> = ({ onSeeded }) => {
     const [isLoading, setIsLoading] = useState(false);
@@ -464,16 +465,17 @@ const NavItem: React.FC<{ to: string, children: React.ReactNode, end?: boolean }
 
 const sidebar = (
   <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-md">
-    <h3 className="font-bold text-lg mb-4">پنل مدیر</h3>
+    <h3 className="font-bold text-lg mb-4">👑 پنل مدیر</h3>
     <nav className="space-y-2">
-      <NavItem to="." end>داشبورد</NavItem>
-      <NavItem to="users">مدیریت کاربران</NavItem>
-      <NavItem to="simcards">مدیریت سیمکارت ها</NavItem>
-      <NavItem to="packages">مدیریت پکیج ها</NavItem>
+      <NavItem to="." end>🏠 داشبورد</NavItem>
+      <NavItem to="users">👥 مدیریت کاربران</NavItem>
+      <NavItem to="simcards">📱 مدیریت سیمکارت ها</NavItem>
+      <NavItem to="packages">📦 مدیریت پکیج ها</NavItem>
       <NavItem to="verifications">📄 تایید مدارک</NavItem>
       <NavItem to="activation-requests">🔐 درخواست‌های فعال‌سازی</NavItem>
-      <NavItem to="payment-receipts">رسیدهای پرداخت</NavItem>
-      <NavItem to="commissions">گزارش کمیسیون‌ها</NavItem>
+      <NavItem to="payment-receipts">💳 رسیدهای پرداخت</NavItem>
+      <NavItem to="commissions">💰 گزارش کمیسیون‌ها</NavItem>
+      <NavItem to="auctions">🏆 مدیریت حراجی‌ها</NavItem>
       <NavItem to="/notifications">🔔 اعلانات</NavItem>
     </nav>
   </div>
@@ -493,6 +495,7 @@ const AdminDashboard: React.FC = () => {
             <Route path="activation-requests" element={<AdminActivationRequestsPanel />} />
             <Route path="payment-receipts" element={<AdminPaymentReceipts />} />
             <Route path="commissions" element={<AdminCommissionsReport />} />
+            <Route path="auctions" element={<AdminAuctionManagement />} />
         </Routes>
     </DashboardLayout>
   );

@@ -80,6 +80,8 @@ const CountdownTimer: React.FC<{ endTime: string }> = ({ endTime }) => {
 const MyBids = () => {
     const { user } = useAuth();
     const { simCards, users, loading } = useData();
+    const { showNotification } = useNotification();
+    const [completingAuctionId, setCompletingAuctionId] = useState<number | null>(null);
     if (!user) return null;
 
     // Find all auction SIM cards where the user has placed a bid
@@ -100,6 +102,11 @@ const MyBids = () => {
         return new Date(a.auction_details!.end_time).getTime() - new Date(b.auction_details!.end_time).getTime();
     });
 
+    const handleCompleteAuction = (simId: number) => {
+        // Navigate to sim details page for completion
+        window.location.href = `/#/sim/${simId}?action=complete_auction`;
+    };
+
     if (loading) return <div>در حال بارگذاری...</div>;
 
     return (
@@ -110,30 +117,42 @@ const MyBids = () => {
                     {myBidAuctions.map(sim => {
                         if (!sim.auction_details) return null;
                         const isHighestBidder = sim.auction_details.highest_bidder_id === user.id;
+                        const isAuctionEnded = new Date(sim.auction_details.end_time) < new Date();
                         // Find the user's last bid
                         const myLastBid = sim.auction_details.bids.slice().reverse().find(b => b.user_id === user.id);
                         const highestBidder = users.find(u => u.id === sim.auction_details?.highest_bidder_id);
 
                         return (
                             <div key={sim.id} className="border dark:border-gray-700 rounded-lg p-4 flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
-                                <div className="flex-1">
+                                <div className="flex-1 w-full md:w-auto">
                                     <p className="font-bold text-lg" style={{direction: 'ltr'}}>{sim.number}</p>
                                     <p className="text-sm text-gray-500 dark:text-gray-400">بالاترین پیشنهاد: {(sim.auction_details.current_bid || 0).toLocaleString('fa-IR')} تومان توسط {highestBidder ? highestBidder.name : 'کسی'}</p>
                                      <CountdownTimer endTime={sim.auction_details.end_time} />
                                 </div>
-                                <div className="flex-1 text-center">
+                                <div className="flex-1 text-center w-full md:w-auto">
                                      <p className="text-sm">آخرین پیشنهاد شما</p>
                                      <p className="font-bold">{(myLastBid?.amount || 0).toLocaleString('fa-IR')} تومان</p>
                                 </div>
-                                <div className="flex-1 text-center">
+                                <div className="flex-1 text-center w-full md:w-auto">
                                     {isHighestBidder ? (
-                                        <span className="px-3 py-1 text-sm rounded-full bg-green-200 text-green-800">شما بالاترین پیشنهاد را دارید</span>
+                                        <span className={`px-3 py-1 text-sm rounded-full ${isAuctionEnded ? 'bg-yellow-200 text-yellow-800' : 'bg-green-200 text-green-800'}`}>
+                                            {isAuctionEnded ? 'شما برنده شدید!' : 'شما بالاترین پیشنهاد را دارید'}
+                                        </span>
                                     ) : (
                                         <span className="px-3 py-1 text-sm rounded-full bg-orange-200 text-orange-800">پیشنهاد شما رد شد!</span>
                                     )}
                                 </div>
-                                <div className="flex-1 text-left">
-                                    <Link to={`/sim/${sim.id}`} className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">مشاهده حراجی</Link>
+                                <div className="flex gap-2 w-full md:w-auto">
+                                    {isHighestBidder && isAuctionEnded && (
+                                        <button 
+                                            onClick={() => handleCompleteAuction(sim.id)}
+                                            disabled={completingAuctionId === sim.id}
+                                            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:bg-gray-400 flex-1 md:flex-none"
+                                        >
+                                            {completingAuctionId === sim.id ? 'در حال پرداخت...' : 'تکمیل حراجی'}
+                                        </button>
+                                    )}
+                                    <Link to={`/sim/${sim.id}`} className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex-1 md:flex-none text-center">مشاهده حراجی</Link>
                                 </div>
                             </div>
                         )
@@ -442,12 +461,12 @@ const BuyerDashboard: React.FC = () => {
     
     const sidebar = (
         <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-md">
-            <h3 className="font-bold text-lg mb-4">پنل خریدار</h3>
+            <h3 className="font-bold text-lg mb-4">🛒 پنل خریدار</h3>
             <nav className="space-y-2">
-                <NavItem to="." end>داشبورد</NavItem>
-                <NavItem to="orders">پیگیری خرید</NavItem>
-                <NavItem to="bids">حراجی های من</NavItem>
-                <NavItem to="wallet">کیف پول</NavItem>
+                <NavItem to="." end>🏠 داشبورد</NavItem>
+                <NavItem to="orders">📦 پیگیری خرید</NavItem>
+                <NavItem to="bids">🏆 حراجی های من</NavItem>
+                <NavItem to="wallet">💰 کیف پول</NavItem>
                 <NavItem to="activation-requests">📦 درخواست‌های فعال‌سازی</NavItem>
                 <NavItem to="secure-payments">🔒 پرداخت های امن</NavItem>
                 <NavItem to="/notifications">🔔 اعلانات</NavItem>

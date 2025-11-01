@@ -5,6 +5,8 @@ import { DataProvider } from './contexts/DataContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import useAuctionProcessor from './hooks/useAuctionProcessor';
+import useAuctionPaymentChecker from './hooks/useAuctionPaymentChecker';
+import useAuctionAutoProcessor from './hooks/useAuctionAutoProcessor';
 
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
@@ -46,6 +48,10 @@ const PrivateRoute: React.FC<{ children: React.ReactElement; roles: string[] }> 
 const AppContent: React.FC = () => {
   // Add the auction processor hook
   useAuctionProcessor();
+  // Add the auction payment checker hook for 48-hour deadline monitoring
+  useAuctionPaymentChecker();
+  // Add the auction auto-processor for ended auctions
+  useAuctionAutoProcessor();
   // Add the auto-cleanup hook for expired listings
   useAutoCleanup();
   
