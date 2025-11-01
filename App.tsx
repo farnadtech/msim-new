@@ -1,5 +1,5 @@
-import React from 'react';
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext-supabase';
 import { DataProvider } from './contexts/DataContext';
 import { NotificationProvider } from './contexts/NotificationContext';
@@ -20,6 +20,7 @@ import ZarinPalCallbackPage from './pages/ZarinPalCallbackPage';
 import SimDetailsPage from './pages/SimDetailsPage';
 import NotificationsPage from './pages/NotificationsPage';
 import { useAuth } from './hooks/useAuth';
+import { useData } from './hooks/useData';
 import { useAutoCleanup } from './hooks/useAutoCleanup';
 import Header from './components/Header';
 import Footer from './components/Footer';
@@ -46,6 +47,15 @@ const PrivateRoute: React.FC<{ children: React.ReactElement; roles: string[] }> 
 };
 
 const AppContent: React.FC = () => {
+  const location = useLocation();
+  const { fetchData } = useData();
+  
+  // Refresh data whenever route changes
+  useEffect(() => {
+    console.log('🔄 Route changed, refreshing data...', location.pathname);
+    fetchData();
+  }, [location.pathname, fetchData]);
+  
   // Add the auction processor hook
   useAuctionProcessor();
   // Add the auction payment checker hook for 48-hour deadline monitoring
@@ -56,11 +66,10 @@ const AppContent: React.FC = () => {
   useAutoCleanup();
   
   return (
-      <HashRouter>
-        <div className="flex flex-col min-h-screen">
-          <Header />
-          <main className="flex-grow">
-            <Routes>
+    <div className="flex flex-col min-h-screen">
+      <Header />
+      <main className="flex-grow">
+        <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/signup" element={<SignupPage />} />
@@ -98,26 +107,27 @@ const AppContent: React.FC = () => {
                 }
               />
               <Route path="*" element={<Navigate to="/" />} />
-            </Routes>
-          </main>
-          <Footer />
-        </div>
-      </HashRouter>
+      </Routes>
+      </main>
+      <Footer />
+    </div>
   );
 };
 
 
 const App: React.FC = () => {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <NotificationProvider>
-          <DataProvider>
-            <AppContent />
-          </DataProvider>
-        </NotificationProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <HashRouter>
+      <ThemeProvider>
+        <AuthProvider>
+          <NotificationProvider>
+            <DataProvider>
+              <AppContent />
+            </DataProvider>
+          </NotificationProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </HashRouter>
   );
 };
 

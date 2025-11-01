@@ -282,3 +282,53 @@ export interface ActivationRequest {
     created_at: string;
     updated_at: string;
 }
+
+// Site Settings Types
+export interface SiteSetting {
+    id: number;
+    setting_key: string;
+    setting_value: string;
+    setting_type: 'number' | 'boolean' | 'string' | 'json';
+    description: string;
+    category: 'commission' | 'auction' | 'listing' | 'payment' | 'rond' | 'general';
+    updated_at: string;
+    updated_by?: string;
+}
+
+export interface SiteSettings {
+    // Commission
+    commission_rate: number;
+    commission_applies_to_auction: boolean;
+    commission_applies_to_fixed: boolean;
+    
+    // Auction
+    auction_guarantee_deposit_rate: number;
+    auction_top_winners_count: number;
+    auction_payment_deadline_hours: number;
+    auction_min_base_price: number;
+    auction_auto_process: boolean;
+    
+    // Listing
+    listing_auto_delete_days: number;
+    listing_max_duration_days: number;
+    listing_auto_delete_enabled: boolean;
+    
+    // Payment
+    zarinpal_enabled: boolean;
+    card_to_card_enabled: boolean;
+    min_deposit_amount: number;
+    min_withdrawal_amount: number;
+    
+    // Round
+    rond_level_1_price: number;
+    rond_level_2_price: number;
+    rond_level_3_price: number;
+    rond_level_4_price: number;
+    rond_level_5_price: number;
+    
+    // General
+    site_name: string;
+    support_phone: string;
+    support_email: string;
+    maintenance_mode: boolean;
+}

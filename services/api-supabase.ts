@@ -1,6 +1,8 @@
-import { supabase } from './supabase';
 import { User, SimCard, Package, Transaction, Bid, Commission, SecurePayment, BuyerPaymentCode, ActivationRequest } from '../types';
 import { ZARINPAL_CONFIG } from '../config/zarinpal';
+import * as settingsService from './settings-service';
+import * as smsService from './sms-service';
+import { supabase } from './supabase';
 
 // Function to remove undefined properties from an object
 const removeUndefinedProps = (obj: any) => {
@@ -29,11 +31,19 @@ export const signup = async (email: string, password: string) => {
 };
 
 export const createUserProfile = async (userId: string, data: Omit<User, 'id'>): Promise<void> => {
+    // Map phoneNumber to phone_number for database
+    const dbData: any = { ...data };
+    if (data.phoneNumber) {
+        dbData.phone_number = data.phoneNumber;
+        delete dbData.phoneNumber;
+    }
+    delete dbData.package_id; // Remove if not needed
+    
     const { error } = await supabase
         .from('users')
         .insert({
             id: userId,
-            ...data
+            ...dbData
         });
         
     if (error) {
@@ -49,6 +59,281 @@ export const login = async (email: string, password: string): Promise<void> => {
     
     if (error) {
         throw new Error(error.message);
+    }
+};
+
+export const loginWithPhoneAndPassword = async (phoneNumber: string, password: string): Promise<void> => {
+    // Validate phone number format
+    if (!smsService.validatePhoneNumber(phoneNumber)) {
+        throw new Error('فرمت شماره تلفن اشتباه است.');
+    }
+
+    const formattedPhone = smsService.formatPhoneNumber(phoneNumber);
+
+    // Get user by phone number
+    const { data: users, error: userError } = await supabase
+        .from('users')
+        .select('id, email')
+        .eq('phone_number', formattedPhone);
+
+    if (userError || !users || users.length === 0) {
+        throw new Error('این شماره ثبت نام نکرده است.');
+    }
+
+    const user = users[0];
+
+    if (!user.email) {
+        throw new Error('خطا در ورود.');
+    }
+
+    // Login with email and password
+    const { error } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password
+    });
+
+    if (error) {
+        throw new Error('شماره تلفن یا رمز عبور اشتباه است.');
+    }
+};
+
+// --- Phone/OTP Authentication ---
+
+export const requestPhoneOTP = async (phoneNumber: string, purpose: 'login' | 'signup' | 'activation'): Promise<{ success: boolean; message: string }> => {
+    try {
+        // Validate phone number format
+        if (!smsService.validatePhoneNumber(phoneNumber)) {
+            return { success: false, message: 'فرمت شماره تلفن اشتباه است. باید 11 رقم و با 09 شروع شود.' };
+        }
+
+        const formattedPhone = smsService.formatPhoneNumber(phoneNumber);
+
+        // For signup, check if phone already exists
+        if (purpose === 'signup') {
+            const { data: users, error: userError } = await supabase
+                .from('users')
+                .select('id')
+                .eq('phone_number', formattedPhone);
+            
+            if (!userError && users && users.length > 0) {
+                return { success: false, message: 'این شماره قبلاً ثبت نام کرده است.' };
+            }
+        }
+
+        // For login, check if phone exists
+        if (purpose === 'login') {
+            const { data: users, error: userError } = await supabase
+                .from('users')
+                .select('id')
+                .eq('phone_number', formattedPhone);
+            
+            if (userError || !users || users.length === 0) {
+                return { success: false, message: 'این شماره ثبت نام نکرده است.' };
+            }
+        }
+
+        // Generate OTP
+        const otpCode = smsService.generateOTP();
+        const expiresAt = new Date();
+        expiresAt.setMinutes(expiresAt.getMinutes() + 5); // 5 minutes expiry
+
+        // Save OTP to database
+        const { error: otpError } = await supabase
+            .from('otp_verifications')
+            .insert({
+                phone_number: formattedPhone,
+                otp_code: otpCode,
+                purpose,
+                expires_at: expiresAt.toISOString(),
+                is_verified: false,
+                attempts: 0
+            });
+
+        if (otpError) {
+            console.error('Error saving OTP:', otpError);
+            return { success: false, message: 'خطا در ارسال کد تایید. لطفاً دوباره تلاش کنید.' };
+        }
+
+        // TODO: Send SMS when Melipayamak is configured
+        // For now, just log the OTP
+        console.log('🔐 OTP Code for', formattedPhone, ':', otpCode);
+        console.log('ℹ️  TEMPORARY: Accept hardcoded OTP "123456" for testing');
+
+        // Uncomment when Melipayamak is ready:
+        // const smsResult = await smsService.sendOTP(formattedPhone, otpCode);
+        // if (!smsResult.success) {
+        //     return { success: false, message: 'خطا در ارسال پیامک. لطفاً دوباره تلاش کنید.' };
+        // }
+
+        return { success: true, message: 'کد تایید ارسال شد.' };
+    } catch (error) {
+        console.error('Error requesting OTP:', error);
+        return { success: false, message: 'خطا در ارسال کد تایید.' };
+    }
+};
+
+export const verifyPhoneOTP = async (
+    phoneNumber: string,
+    otpCode: string,
+    purpose: 'login' | 'signup' | 'activation'
+): Promise<{ success: boolean; message: string; userId?: string }> => {
+    try {
+        const formattedPhone = smsService.formatPhoneNumber(phoneNumber);
+
+        // TEMPORARY: Accept hardcoded OTP for testing
+        if (otpCode === '123456') {
+            console.log('✅ TEMPORARY: Hardcoded OTP accepted');
+            
+            // For login, get user ID
+            if (purpose === 'login') {
+                const { data: user } = await supabase
+                    .from('users')
+                    .select('id')
+                    .eq('phone_number', formattedPhone)
+                    .single();
+                
+                if (user) {
+                    return { success: true, message: 'کد تایید صحیح است.', userId: user.id };
+                }
+            }
+            
+            return { success: true, message: 'کد تایید صحیح است.' };
+        }
+
+        // Find valid OTP
+        const { data: otpRecord, error: fetchError } = await supabase
+            .from('otp_verifications')
+            .select('*')
+            .eq('phone_number', formattedPhone)
+            .eq('purpose', purpose)
+            .eq('is_verified', false)
+            .gt('expires_at', new Date().toISOString())
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+        if (fetchError || !otpRecord) {
+            return { success: false, message: 'کد تایید منقضی شده یا یافت نشد.' };
+        }
+
+        // Check attempts
+        if (otpRecord.attempts >= 3) {
+            return { success: false, message: 'تعداد تلاش‌های شما تمام شده است. لطفاً کد جدید درخواست کنید.' };
+        }
+
+        // Verify OTP
+        if (otpRecord.otp_code !== otpCode) {
+            // Increment attempts
+            await supabase
+                .from('otp_verifications')
+                .update({ attempts: otpRecord.attempts + 1 })
+                .eq('id', otpRecord.id);
+            
+            return { success: false, message: 'کد تایید اشتباه است.' };
+        }
+
+        // Mark as verified
+        await supabase
+            .from('otp_verifications')
+            .update({ is_verified: true })
+            .eq('id', otpRecord.id);
+
+        // For login, return user ID
+        if (purpose === 'login') {
+            const { data: user } = await supabase
+                .from('users')
+                .select('id')
+                .eq('phone_number', formattedPhone)
+                .single();
+            
+            if (user) {
+                return { success: true, message: 'کد تایید صحیح است.', userId: user.id };
+            }
+        }
+
+        return { success: true, message: 'کد تایید صحیح است.' };
+    } catch (error) {
+        console.error('Error verifying OTP:', error);
+        return { success: false, message: 'خطا در بررسی کد تایید.' };
+    }
+};
+
+export const loginWithPhone = async (phoneNumber: string, otpCode: string): Promise<void> => {
+    const result = await verifyPhoneOTP(phoneNumber, otpCode, 'login');
+    
+    if (!result.success || !result.userId) {
+        throw new Error(result.message);
+    }
+
+    // Get user email for Supabase auth
+    const { data: user } = await supabase
+        .from('users')
+        .select('email')
+        .eq('id', result.userId)
+        .single();
+
+    if (!user?.email) {
+        throw new Error('خطا در ورود.');
+    }
+
+    // Sign in with Supabase (this sets the auth session)
+    const { error } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: result.userId // Use userId as password for phone login
+    });
+
+    if (error) {
+        throw new Error('خطا در ورود.');
+    }
+};
+
+export const signupWithPhone = async (
+    phoneNumber: string,
+    otpCode: string,
+    name: string,
+    role: 'seller' | 'buyer'
+): Promise<void> => {
+    const result = await verifyPhoneOTP(phoneNumber, otpCode, 'signup');
+    
+    if (!result.success) {
+        throw new Error(result.message);
+    }
+
+    const formattedPhone = smsService.formatPhoneNumber(phoneNumber);
+    
+    // Create a unique email based on phone number
+    const email = `${formattedPhone}@msim724.phone`;
+    const password = formattedPhone; // Use phone as password
+
+    // Create Supabase auth user
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password
+    });
+
+    if (authError) {
+        throw new Error('خطا در ثبت نام.');
+    }
+
+    if (!authData.user) {
+        throw new Error('خطا در ثبت نام.');
+    }
+
+    // Create user profile
+    const { error: profileError } = await supabase
+        .from('users')
+        .insert({
+            id: authData.user.id,
+            name,
+            email,
+            phone_number: formattedPhone,
+            role,
+            wallet_balance: 0,
+            blocked_balance: 0
+        });
+
+    if (profileError) {
+        throw new Error('خطا در ایجاد پروفایل کاربری.');
     }
 };
 
@@ -1420,7 +1705,9 @@ export const completeAuctionPurchaseForWinner = async (simId: number, buyerId: s
     if (!guaranteeError && guaranteeDepositData) {
         guaranteeDepositAmount = guaranteeDepositData.amount;
     } else {
-        guaranteeDepositAmount = Math.floor(simData.price * 0.05);
+        // Get guarantee deposit from settings
+        const guaranteeRate = await settingsService.getAuctionGuaranteeRate();
+        guaranteeDepositAmount = Math.floor(simData.price * guaranteeRate);
     }
     
     // Determine the price (winning bid amount)
@@ -1517,6 +1804,11 @@ export const completeAuctionPurchaseForWinner = async (simId: number, buyerId: s
     }
     
     // STEP 2: Create purchase order (status: pending - waiting for line activation/delivery)
+    // Get commission rate from settings
+    const commissionRate = await settingsService.getCommissionRate();
+    const commissionAmount = Math.floor(bidAmount * commissionRate);
+    const sellerReceivedAmount = bidAmount - commissionAmount;
+    
     const { data: purchaseOrderData, error: purchaseOrderInsertError } = await supabase
         .from('purchase_orders')
         .insert({
@@ -1526,8 +1818,8 @@ export const completeAuctionPurchaseForWinner = async (simId: number, buyerId: s
             line_type: simData.is_active ? 'active' : 'inactive',
             status: 'pending', // Pending until line delivery is complete
             price: bidAmount,
-            commission_amount: Math.floor(bidAmount * 0.02),
-            seller_received_amount: bidAmount - Math.floor(bidAmount * 0.02),
+            commission_amount: commissionAmount,
+            seller_received_amount: sellerReceivedAmount,
             buyer_blocked_amount: bidAmount,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
@@ -1883,7 +2175,9 @@ export const createSecurePayment = async (
     
     // STEP 2: Create purchase order (similar to auction purchases)
     const lineType = simCard.is_active ? 'active' : 'inactive';
-    const commissionAmount = Math.floor(amount * 0.02);
+    // Get commission rate from settings
+    const commissionRate = await settingsService.getCommissionRate();
+    const commissionAmount = Math.floor(amount * commissionRate);
     const sellerReceivedAmount = amount - commissionAmount;
     
     const { data: purchaseOrderData, error: purchaseOrderError } = await supabase
@@ -3810,18 +4104,19 @@ export const deleteExpiredListings = async (): Promise<number> => {
 
     // Get current date
     const now = new Date();
-    // Calculate 30 days ago
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const thirtyDaysAgoIso = thirtyDaysAgo.toISOString();
+    // Get auto-delete days from settings
+    const autoDeleteDays = await settingsService.getListingAutoDeleteDays();
+    const daysAgo = new Date(now.getTime() - autoDeleteDays * 24 * 60 * 60 * 1000);
+    const daysAgoIso = daysAgo.toISOString();
     
     console.log('🗑 Cleaning up expired listings...');
     
-    // حذف خطوط فروخته شده‌ای بیش از 30 روز
+    // حذف خطوط فروخته شده‌ای بیش از تعداد روزهای تنظیم شده
     const { data: expiredSims, error: fetchError } = await supabase
         .from('sim_cards')
         .select('id')
         .eq('status', 'sold')
-        .lt('sold_date', thirtyDaysAgoIso);
+        .lt('sold_date', daysAgoIso);
     
     if (fetchError) {
         console.error('❌ خطا در بررسی اعلامات منقضی شده:', fetchError);
@@ -3852,11 +4147,83 @@ export const deleteExpiredListings = async (): Promise<number> => {
     return expiredIds.length;
 };
 
+/**
+ * Delete a SIM card if it has no active transactions or bids
+ */
+const deleteSimCard = async (simId: number): Promise<void> => {
+    console.log('🗑 Attempting to delete SIM card:', simId);
+    
+    // Get SIM card details
+    const { data: simData, error: simError } = await supabase
+        .from('sim_cards')
+        .select('*, auction_details(*)')
+        .eq('id', simId)
+        .single();
+    
+    if (simError || !simData) {
+        throw new Error('سیمکارت یافت نشد.');
+    }
+    
+    // Check if SIM is already sold
+    if (simData.status === 'sold') {
+        throw new Error('سیمکارت فروخته شده قابل حذف نیست.');
+    }
+    
+    // Check for active purchase orders
+    const { data: purchaseOrders } = await supabase
+        .from('purchase_orders')
+        .select('id')
+        .eq('sim_card_id', simId)
+        .in('status', ['pending', 'awaiting_payment', 'processing']);
+    
+    if (purchaseOrders && purchaseOrders.length > 0) {
+        throw new Error('این سیمکارت دارای سفارش فعال است و قابل حذف نیست.');
+    }
+    
+    // For auction type, check if there are any bids
+    if (simData.type === 'auction' && simData.auction_details) {
+        const { data: bids } = await supabase
+            .from('bids')
+            .select('id')
+            .eq('sim_card_id', simId);
+        
+        if (bids && bids.length > 0) {
+            throw new Error('این حراجی دارای پیشنهاد است و قابل حذف نیست.');
+        }
+        
+        // Delete auction details first
+        const auctionId = simData.auction_details.id;
+        await supabase
+            .from('auction_details')
+            .delete()
+            .eq('id', auctionId);
+    }
+    
+    // Delete the SIM card
+    const { error: deleteError } = await supabase
+        .from('sim_cards')
+        .delete()
+        .eq('id', simId);
+    
+    if (deleteError) {
+        throw new Error('خطا در حذف سیمکارت: ' + deleteError.message);
+    }
+    
+    console.log('✅ SIM card deleted successfully:', simId);
+};
+
 // Export all functions as an object
 const api = {
     signup,
     login,
+    loginWithPhoneAndPassword,
     requestPasswordReset,
+    // Phone/OTP authentication
+    requestPhoneOTP,
+    verifyPhoneOTP,
+    loginWithPhone,
+    signupWithPhone,
+    // User management
     createUserProfile,
     getUserProfile,
     getUsers,
@@ -3947,6 +4314,7 @@ const api = {
         return processAuctionEnding(auctionId);
     },
     completeSecurePaymentAfterDelivery,
+    deleteSimCard,
 };
 
 export default api;

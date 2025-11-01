@@ -17,6 +17,7 @@ interface DataContextType {
   updateUserPackage: (userId: string, packageId: number) => Promise<void>;
   updateUser: (userId: string, updatedData: Partial<User>) => Promise<void>;
   updateSimCard: (simId: number, updatedData: Partial<SimCard>) => Promise<void>;
+  removeSimCard: (simId: number) => void;
   addPackage: (packageData: Omit<Package, 'id'>) => Promise<void>;
   updatePackage: (packageId: number, updatedData: Partial<Package>) => Promise<void>;
   fetchData: () => Promise<void>;
@@ -35,6 +36,7 @@ export const DataContext = createContext<DataContextType>({
     updateUserPackage: async () => {},
     updateUser: async () => {},
     updateSimCard: async () => {},
+    removeSimCard: () => {},
     addPackage: async () => {},
     updatePackage: async () => {},
     fetchData: async () => {},
@@ -154,6 +156,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await fetchData();
   }
 
+  const removeSimCard = (simId: number) => {
+    setSimCards(prev => prev.filter(s => s.id !== simId));
+  }
+
   const addPackage = async (packageData: Omit<Package, 'id'>) => {
     await api.addPackage(packageData);
     await fetchData();
@@ -177,6 +183,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     updateUserPackage,
     updateUser,
     updateSimCard,
+    removeSimCard,
     addPackage,
     updatePackage,
     fetchData,

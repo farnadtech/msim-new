@@ -11,6 +11,7 @@ import AdminCommissionsReport from './AdminCommissionsReport';
 import AdminVerificationPanel from './AdminVerificationPanel';
 import AdminActivationRequestsPanel from './AdminActivationRequestsPanel';
 import AdminAuctionManagement from './AdminAuctionManagement';
+import AdminSettings from './AdminSettings';
 
 const AdminSeedNotice: React.FC<{ onSeeded: () => void }> = ({ onSeeded }) => {
     const [isLoading, setIsLoading] = useState(false);
@@ -476,6 +477,7 @@ const sidebar = (
       <NavItem to="payment-receipts">💳 رسیدهای پرداخت</NavItem>
       <NavItem to="commissions">💰 گزارش کمیسیون‌ها</NavItem>
       <NavItem to="auctions">🏆 مدیریت حراجی‌ها</NavItem>
+      <NavItem to="settings">⚙️ تنظیمات سایت</NavItem>
       <NavItem to="/notifications">🔔 اعلانات</NavItem>
     </nav>
   </div>
@@ -496,6 +498,7 @@ const AdminDashboard: React.FC = () => {
             <Route path="payment-receipts" element={<AdminPaymentReceipts />} />
             <Route path="commissions" element={<AdminCommissionsReport />} />
             <Route path="auctions" element={<AdminAuctionManagement />} />
+            <Route path="settings" element={<AdminSettings />} />
         </Routes>
     </DashboardLayout>
   );

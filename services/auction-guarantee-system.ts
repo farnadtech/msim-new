@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import * as settingsService from './settings-service';
 import { createNotification, createNotificationForAdmins } from './api-supabase';
 
 /**
@@ -46,7 +47,8 @@ export const checkGuaranteeDepositBalance = async (
     }
 
     // Only require deposit for first bid - ZERO for subsequent bids
-    const requiredAmount = isFirstBid ? Math.floor(basePrice * 0.05) : 0;
+    const guaranteeRate = await settingsService.getAuctionGuaranteeRate();
+    const requiredAmount = isFirstBid ? Math.floor(basePrice * guaranteeRate) : 0;
 
     const { data: userData, error: userError } = await supabase
         .from('users')
@@ -158,8 +160,9 @@ export const placeBidWithGuaranteeDeposit = async (
     console.log('✅ isFirstBid:', isFirstBid, '| Participant count:', existingParticipants?.length || 0);
     
     // Calculate guarantee deposit with explicit integer conversion
-    const rawCalculation = basePrice * 0.05;
-    const guaranteeDepositAmount = isFirstBid ? Math.floor(rawCalculation) : 0; // 5% of base price for first bid
+    const guaranteeRate = await settingsService.getAuctionGuaranteeRate();
+    const rawCalculation = basePrice * guaranteeRate;
+    const guaranteeDepositAmount = isFirstBid ? Math.floor(rawCalculation) : 0; // Dynamic % of base price for first bid
     console.log('🔢 Base price and guarantee calculation:', { basePrice, rawCalculation, guaranteeDepositAmount });
     
     const totalRequiredAmount = isFirstBid ? guaranteeDepositAmount : 0; // Only require guarantee for first bid, not the full bid amount
@@ -396,8 +399,9 @@ export const processAuctionEnding = async (auctionId: number): Promise<void> => 
         return;
     }
 
-    // Mark top 3 as winners and update ranks
-    const topThree = participants.slice(0, 3);
+    // Mark top winners and update ranks
+    const topWinnersCount = await settingsService.getAuctionTopWinnersCount();
+    const topThree = participants.slice(0, topWinnersCount);
     const others = participants.slice(3);
 
     // Update top 3 participants
@@ -482,10 +486,11 @@ export const processAuctionEnding = async (auctionId: number): Promise<void> => 
         }
     }
 
-    // Create winner payment queue for top 3
+    // Create winner payment queue for top winners
     for (const winner of topThree) {
         const paymentDeadline = new Date();
-        paymentDeadline.setHours(paymentDeadline.getHours() + 48);
+        const deadlineHours = await settingsService.getAuctionPaymentDeadlineHours();
+        paymentDeadline.setHours(paymentDeadline.getHours() + deadlineHours);
 
         const remainingAmount = winner.highest_bid - (winner.guarantee_deposit_amount || 0);
 
@@ -540,10 +545,12 @@ export const processAuctionEnding = async (auctionId: number): Promise<void> => 
         .eq('id', auctionDetails.sim_card_id)
         .single();
 
+    const deadlineHours = await settingsService.getAuctionPaymentDeadlineHours();
+
     await createNotification(
         firstWinner.user_id,
         '🎉 شما برنده حراجی هستید!',
-        `تبریک! شما برنده حراجی برای سیمکارت ${simData?.number} با پیشنهاد ${firstWinner.highest_bid.toLocaleString('fa-IR')} تومان شدید. برای تکمیل خرید، ${firstWinner.highest_bid.toLocaleString('fa-IR')} تومان را درون 48 ساعت پرداخت کنید.`,
+        `تبریک! شما برنده حراجی برای سیمکارت ${simData?.number} با پیشنهاد ${firstWinner.highest_bid.toLocaleString('fa-IR')} تومان شدید. برای تکمیل خرید، ${firstWinner.highest_bid.toLocaleString('fa-IR')} تومان را درون ${deadlineHours} ساعت پرداخت کنید.`,
         'success'
     );
 
@@ -629,10 +636,14 @@ export const handleExpiredPaymentDeadline = async (winnerQueue: any): Promise<vo
         .eq('id', winnerQueue.sim_card_id)
         .single();
 
+    const guaranteeRate = await settingsService.getAuctionGuaranteeRate();
+    const depositAmount = Math.floor(winnerQueue.highest_bid * guaranteeRate);
+    const deadlineHours = await settingsService.getAuctionPaymentDeadlineHours();
+
     await createNotification(
         winnerQueue.user_id,
         '❌ حق ضمانت سوخته شد',
-        `شما درون مهلت 48 ساعتی پرداخت را انجام ندادید. حق ضمانت ${Math.floor(winnerQueue.highest_bid * 0.05)} تومان برای سیمکارت ${simData?.number} حذف شد.`,
+        `شما درون مهلت ${deadlineHours} ساعتی پرداخت را انجام ندادید. حق ضمانت ${depositAmount.toLocaleString('fa-IR')} تومان برای سیمکارت ${simData?.number} حذف شد.`,
         'error'
     );
 
@@ -651,7 +662,8 @@ export const handleExpiredPaymentDeadline = async (winnerQueue: any): Promise<vo
     if (nextWinner) {
         // Notify next winner
         const paymentDeadline = new Date();
-        paymentDeadline.setHours(paymentDeadline.getHours() + 48);
+        const deadlineHours = await settingsService.getAuctionPaymentDeadlineHours();
+        paymentDeadline.setHours(paymentDeadline.getHours() + deadlineHours);
 
         await supabase
             .from('auction_winner_queue')
@@ -664,7 +676,7 @@ export const handleExpiredPaymentDeadline = async (winnerQueue: any): Promise<vo
         await createNotification(
             nextWinner.user_id,
             '🎉 نوبت شما برای پرداخت رسید!',
-            `برنده قبلی پرداخت نکرد. اکنون شما شانس دارید برای سیمکارت ${simData?.number} ${nextWinner.highest_bid.toLocaleString('fa-IR')} تومان پرداخت کنید. درون 48 ساعت پرداخت کنید.`,
+            `برنده قبلی پرداخت نکرد. اکنون شما شانس دارید برای سیمکارت ${simData?.number} ${nextWinner.highest_bid.toLocaleString('fa-IR')} تومان پرداخت کنید. درون ${deadlineHours} ساعت پرداخت کنید.`,
             'success'
         );
     } else {
@@ -747,10 +759,10 @@ export const processAuctionWinnerPayment = async (
     }
 
     // Process financial transactions
-    const COMMISSION_PERCENTAGE = 2;
+    const commissionRate = await settingsService.getCommissionRate();
     // Calculate the actual amount to be paid by the winner (bid amount minus guarantee deposit)
     const actualPaymentAmount = winnerQueue.highest_bid - (winnerQueue.guarantee_deposit_amount || 0);
-    const commissionAmount = Math.floor(actualPaymentAmount * (COMMISSION_PERCENTAGE / 100));
+    const commissionAmount = Math.floor(actualPaymentAmount * commissionRate);
     const sellerReceivedAmount = actualPaymentAmount - commissionAmount;
 
     // Get seller info
@@ -832,7 +844,7 @@ export const processAuctionWinnerPayment = async (
             sim_number: simData?.number,
             sale_price: winnerQueue.highest_bid,
             commission_amount: commissionAmount,
-            commission_percentage: COMMISSION_PERCENTAGE,
+            commission_percentage: Math.round(commissionRate * 100),
             seller_received_amount: sellerReceivedAmount,
             sale_type: 'auction',
             buyer_id: winnerQueue.user_id,
@@ -906,6 +918,10 @@ export const completeAuctionFlow = async (auctionId: number, winnerUserId: strin
         // Get the winning bid amount
         const winningBidAmount = auctionDetails.current_bid || 0;
 
+        const commissionRate = await settingsService.getCommissionRate();
+        const commissionAmount = Math.floor(winningBidAmount * commissionRate);
+        const sellerReceivedAmount = winningBidAmount - commissionAmount;
+
         // Create purchase order with line delivery handling
         const { error: purchaseOrderError } = await supabase
             .from('purchase_orders')
@@ -916,8 +932,8 @@ export const completeAuctionFlow = async (auctionId: number, winnerUserId: strin
                 line_type: lineType,
                 status: 'pending', // Start with pending for line verification
                 price: winningBidAmount,
-                commission_amount: winningBidAmount * 0.02, // 2% commission
-                seller_received_amount: winningBidAmount * 0.98, // 98% to seller
+                commission_amount: commissionAmount,
+                seller_received_amount: sellerReceivedAmount,
                 buyer_blocked_amount: winningBidAmount,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
@@ -952,7 +968,7 @@ export const completeAuctionFlow = async (auctionId: number, winnerUserId: strin
         await createNotification(
             sellerData.id,
             '🎯 نیاز به تحویل خط',
-            `برای سیمکارت ${simData.number}، باید خط ${lineType === 'فعال' ? 'فعال' : 'غیرفعال'} را برای خریدار تحویل دهید. لطفاً کد فعال‌سازی یا سند مورد نیاز را ارسال کنید.`,
+            `برای سیمکارت ${simData.number}، باید خط ${lineType === 'active' ? 'فعال' : 'غیرفعال'} را برای خریدار تحویل دهید. لطفاً کد فعال‌سازی یا سند مورد نیاز را ارسال کنید.`,
             'info'
         );
 

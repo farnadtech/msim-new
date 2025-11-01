@@ -15,6 +15,7 @@ interface SearchCriteria {
     minPrice: string;
     maxPrice: string;
     isRond: boolean;
+    rondLevel: number;
     pattern: string[];
 }
 
@@ -32,7 +33,7 @@ const HomePage: React.FC = () => {
         return sim.status === 'sold' && sim.sold_date && new Date(sim.sold_date).getTime() > Date.now() - 24 * 60 * 60 * 1000;
     };
 
-    const handleSearch = (criteria: Omit<SearchCriteria, 'minPrice' | 'maxPrice' | 'isRond'>) => {
+    const handleSearch = (criteria: SearchCriteria) => {
         const results = simCards.filter(sim => {
             // Only show available sims in search
             if (sim.status !== 'available') {
@@ -43,12 +44,25 @@ const HomePage: React.FC = () => {
             const carrierMatch = criteria.carrier === 'all' || sim.carrier === criteria.carrier;
             const typeMatch = criteria.type === 'all' || sim.type === criteria.type;
 
+            // Price filtering
+            const minPrice = criteria.minPrice ? parseInt(criteria.minPrice) : 0;
+            const maxPrice = criteria.maxPrice ? parseInt(criteria.maxPrice) : Number.MAX_SAFE_INTEGER;
+            const priceMatch = sim.price >= minPrice && sim.price <= maxPrice;
+
+            // Rond filtering - range based (1 to selected level)
+            let rondMatch = true;
+            if (criteria.isRond) {
+                rondMatch = sim.is_rond === true && 
+                           (sim.rond_level || 1) >= 1 && 
+                           (sim.rond_level || 1) <= criteria.rondLevel;
+            }
+
             const patternString = criteria.pattern.map(p => p || '.').join('');
             const isPatternUsed = patternString.replace(/\./g, '').length > 0;
             const patternRegex = new RegExp(`^${patternString}$`);
             const patternMatch = !isPatternUsed || patternRegex.test(sim.number);
             
-            return numberMatch && carrierMatch && typeMatch && patternMatch;
+            return numberMatch && carrierMatch && typeMatch && priceMatch && rondMatch && patternMatch;
         });
         setSearchResults(results);
     };
@@ -134,7 +148,16 @@ const HomePage: React.FC = () => {
                             onSubmit={(e) => {
                                 e.preventDefault();
                                 const searchInput = (e.target as HTMLFormElement).elements.namedItem('main-search') as HTMLInputElement;
-                                handleSearch({ number: searchInput.value, carrier: 'all', type: 'all', pattern: Array(11).fill('') });
+                                handleSearch({ 
+                                    number: searchInput.value, 
+                                    carrier: 'all', 
+                                    type: 'all', 
+                                    minPrice: '', 
+                                    maxPrice: '', 
+                                    isRond: false, 
+                                    rondLevel: 1, 
+                                    pattern: Array(11).fill('') 
+                                });
                             }}
                             className="relative"
                         >

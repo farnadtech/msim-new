@@ -8,6 +8,7 @@ import { useNotification } from '../contexts/NotificationContext';
 import LineDeliveryMethodModal from '../components/LineDeliveryMethodModal';
 import api from '../services/api-supabase';
 import { supabase } from '../services/supabase';
+import * as settingsService from '../services/settings-service';
 
 const CountdownTimer: React.FC<{ endTime: string }> = ({ endTime }) => {
     const calculateTimeLeft = () => {
@@ -65,6 +66,30 @@ const SimDetailsPage: React.FC = () => {
     const [isPurchaseCompleted, setIsPurchaseCompleted] = useState(false);
     const [isDeliveryModalOpen, setDeliveryModalOpen] = useState(false);
     const [showAuctionPaymentModal, setShowAuctionPaymentModal] = useState(false);
+    
+    // Settings from database
+    const [commissionRate, setCommissionRate] = useState(0.02);
+    const [guaranteeRate, setGuaranteeRate] = useState(0.05);
+    const [paymentDeadlineHours, setPaymentDeadlineHours] = useState(48);
+
+    // Load settings on mount
+    useEffect(() => {
+        const loadSettings = async () => {
+            try {
+                const [commission, guarantee, deadline] = await Promise.all([
+                    settingsService.getCommissionRate(),
+                    settingsService.getAuctionGuaranteeRate(),
+                    settingsService.getAuctionPaymentDeadlineHours()
+                ]);
+                setCommissionRate(commission);
+                setGuaranteeRate(guarantee);
+                setPaymentDeadlineHours(deadline);
+            } catch (error) {
+                console.error('Error loading settings:', error);
+            }
+        };
+        loadSettings();
+    }, []);
 
     useEffect(() => {
         if (!loading && id) {
@@ -317,8 +342,8 @@ const SimDetailsPage: React.FC = () => {
                             line_type: lineType,
                             status: 'pending',
                             price: sim.auction_details?.current_bid || 0,
-                            commission_amount: (sim.auction_details?.current_bid || 0) * 0.02,
-                            seller_received_amount: (sim.auction_details?.current_bid || 0) * 0.98,
+                            commission_amount: (sim.auction_details?.current_bid || 0) * commissionRate,
+                            seller_received_amount: (sim.auction_details?.current_bid || 0) * (1 - commissionRate),
                             buyer_blocked_amount: sim.auction_details?.current_bid || 0,
                             created_at: new Date().toISOString(),
                             updated_at: new Date().toISOString()
@@ -657,7 +682,7 @@ const SimDetailsPage: React.FC = () => {
                                 </li>
                                 <li className="flex items-start">
                                     <span className="text-lg ml-33">4️⃣</span>
-                                    <span><strong>پرداخت موقت:</strong> پس از پایان حراجی، برنده باید در مدت 48 ساعت پرداخت را انجام دهد.</span>
+                                    <span><strong>پرداخت موقت:</strong> پس از پایان حراجی، برنده باید در مدت {paymentDeadlineHours} ساعت پرداخت را انجام دهد.</span>
                                 </li>
                             </ul>
                         </div>
@@ -667,13 +692,13 @@ const SimDetailsPage: React.FC = () => {
                             <h3 className="text-xl font-bold text-orange-600 dark:text-orange-400 mb-4">💰 حق ضمانت نامه</h3>
                             <div className="space-y-4">
                                 <div>
-                                    <p className="text-sm text-gray-600 dark:text-gray-400">مبلغ حق ضمانت (5% از قیمت پایه)</p>
+                                    <p className="text-sm text-gray-600 dark:text-gray-400">مبلغ حق ضمانت ({(guaranteeRate * 100).toFixed(0)}% از قیمت پایه)</p>
                                     <p className="text-2xl font-bold text-orange-600 dark:text-orange-400">
-                                        {(sim.price * 0.05).toLocaleString('fa-IR')} تومان
+                                        {(sim.price * guaranteeRate).toLocaleString('fa-IR')} تومان
                                     </p>
                                 </div>
                                 <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-                                    هنگام ثبت پیشنهاد اول، 5% از قیمت پایه به‌طور موقت از حساب شما کسر می‌شود. این مبلغ برای حفاظت از جدی‌بودن شرکت‌کنندگان است.
+                                    هنگام ثبت پیشنهاد اول، {(guaranteeRate * 100).toFixed(0)}% از قیمت پایه به‌طور موقت از حساب شما کسر می‌شود. این مبلغ برای حفاظت از جدی‌بودن شرکت‌کنندگان است.
                                 </p>
                                 <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
                                     اگر برنده نشوید، این مبلغ به‌طور خودکار به حساب شما برگردانده می‌شود.
@@ -691,7 +716,7 @@ const SimDetailsPage: React.FC = () => {
                                 </li>
                                 <li className="flex items-start">
                                     <span className="text-lg ml-3">✓</span>
-                                    <span>فرصت 48 ساعتی برای تکمیل پرداخت دارید.</span>
+                                    <span>فرصت {paymentDeadlineHours} ساعتی برای تکمیل پرداخت دارید.</span>
                                 </li>
                                 <li className="flex items-start">
                                     <span className="text-lg ml-3">✓</span>
@@ -709,13 +734,13 @@ const SimDetailsPage: React.FC = () => {
                             <h3 className="text-xl font-bold text-purple-600 dark:text-purple-400 mb-4">💳 هزینه‌ها</h3>
                             <div className="space-y-4">
                                 <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded">
-                                    <p className="text-sm text-gray-600 dark:text-gray-400">کمیسیون سایت (2%)</p>
+                                    <p className="text-sm text-gray-600 dark:text-gray-400">کمیسیون سایت ({(commissionRate * 100).toFixed(0)}%)</p>
                                     <p className="text-lg font-bold text-purple-600 dark:text-purple-400">
-                                        {(finalPrice * 0.02).toLocaleString('fa-IR')} تومان
+                                        {(finalPrice * commissionRate).toLocaleString('fa-IR')} تومان
                                     </p>
                                 </div>
                                 <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
-                                    کمیسیون 2 درصد از قیمت نهایی خریداری محاسبه می‌شود. این مبلغ برای حفاظت و بهبود سایت استفاده می‌شود.
+                                    کمیسیون {(commissionRate * 100).toFixed(0)} درصد از قیمت نهایی خریداری محاسبه می‌شود. این مبلغ برای حفاظت و بهبود سایت استفاده می‌شود.
                                 </p>
                             </div>
                         </div>
@@ -727,7 +752,7 @@ const SimDetailsPage: React.FC = () => {
                         <ul className="space-y-2 text-sm text-red-700 dark:text-red-300">
                             <li>• نمی‌توانید روی سیمکارت خود پیشنهاد ثبت کنید.</li>
                             <li>• پیشنهاد شما باید بیشتر از پیشنهاد قبلی باشد.</li>
-                            <li>درصورت عدم پرداخت در 48 ساعت، حق ضمانت نامه ضبط می‌شود.</li>
+                            <li>درصورت عدم پرداخت در {paymentDeadlineHours} ساعت، حق ضمانت نامه ضبط می‌شود.</li>
                             <li>درصورت عدم پرداخت، برنده بعدی انتخاب می‌شود.</li>
                             <li>موجودی کافی برای ثبت پیشنهاد و حق ضمانت الزامی است.</li>
                         </ul>
@@ -767,7 +792,7 @@ const SimDetailsPage: React.FC = () => {
                             </p>
                             <div className="mt-4 p-3 bg-orange-100 dark:bg-orange-900/30 rounded text-sm text-orange-800 dark:text-orange-300">
                                 <p>💡 توجه: این مبلغ کامل شامل حق ضمانت و پیشنهاد شما می‌شود</p>
-                                <p className="mt-1">💰 2% کمیسیون سایت از این مبلغ کسر خواهد شد</p>
+                                <p className="mt-1">💰 {(commissionRate * 100).toFixed(0)}% کمیسیون سایت از این مبلغ کسر خواهد شد</p>
                             </div>
                         </div>
                         <div className="flex justify-center space-x-4 space-x-reverse">

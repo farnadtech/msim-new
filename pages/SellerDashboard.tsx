@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useState } from 'react';
+import React, { useState } from 'react';
 // FIX: Upgrading react-router-dom from v5 to v6.
 import { NavLink, Route, Routes, useNavigate } from 'react-router-dom';
 import DashboardLayout from '../components/DashboardLayout';
@@ -12,6 +12,7 @@ import { useData } from '../hooks/useData';
 import { SimCard, Package, SimCardTypeOption } from '../types';
 import { useNotification } from '../contexts/NotificationContext';
 import api, { PaymentReceipt } from '../services/api-supabase';
+import * as settingsService from '../services/settings-service';
 
 const SellerOverview = () => {
     const { user } = useAuth();
@@ -61,11 +62,14 @@ const SellerOverview = () => {
 
 const MySimCards = () => {
     const { user } = useAuth();
-    const { simCards, updateSimCard } = useData();
+    const { simCards, updateSimCard, removeSimCard } = useData();
     const { showNotification } = useNotification();
     const [isEditModalOpen, setEditModalOpen] = useState(false);
+    const [isDeleteModalOpen, setDeleteModalOpen] = useState(false);
     const [editingSim, setEditingSim] = useState<SimCard | null>(null);
+    const [deletingSim, setDeletingSim] = useState<SimCard | null>(null);
     const [newPrice, setNewPrice] = useState('');
+    const [isDeleting, setIsDeleting] = useState(false);
 
     if (!user) return null;
     const mySims = simCards.filter(s => s.seller_id === user.id);
@@ -115,6 +119,43 @@ const MySimCards = () => {
         }
     };
 
+    const handleDeleteClick = async (sim: SimCard) => {
+        // Check if sim can be deleted
+        if (sim.status === 'sold') {
+            showNotification('سیمکارت فروخته شده قابل حذف نیست.', 'error');
+            return;
+        }
+
+        // For auction type, check if there are any bids
+        if (sim.type === 'auction' && sim.auction_details) {
+            const { bids } = sim.auction_details;
+            if (bids && bids.length > 0) {
+                showNotification('این حراجی دارای پیشنهاد است و قابل حذف نیست.', 'error');
+                return;
+            }
+        }
+
+        setDeletingSim(sim);
+        setDeleteModalOpen(true);
+    };
+
+    const confirmDelete = async () => {
+        if (!deletingSim) return;
+        
+        setIsDeleting(true);
+        try {
+            await api.deleteSimCard(deletingSim.id);
+            removeSimCard(deletingSim.id);
+            showNotification('سیمکارت با موفقیت حذف شد.', 'success');
+            setDeleteModalOpen(false);
+            setDeletingSim(null);
+        } catch (error: any) {
+            showNotification(error.message || 'خطا در حذف سیمکارت', 'error');
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
 
     return (
         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
@@ -148,10 +189,17 @@ const MySimCards = () => {
                                     </span>
                                 </td>
                                 <td className="p-3">
-                                    {sim.status === 'available' && sim.type !== 'inquiry' && (
-                                        <button onClick={() => handleEditClick(sim)} className="bg-yellow-500 text-white px-3 py-1 rounded-md hover:bg-yellow-600 text-sm">
-                                            ویرایش
-                                        </button>
+                                    {sim.status === 'available' && (
+                                        <div className="flex gap-2">
+                                            {sim.type !== 'inquiry' && (
+                                                <button onClick={() => handleEditClick(sim)} className="bg-yellow-500 text-white px-3 py-1 rounded-md hover:bg-yellow-600 text-sm">
+                                                    ویرایش
+                                                </button>
+                                            )}
+                                            <button onClick={() => handleDeleteClick(sim)} className="bg-red-500 text-white px-3 py-1 rounded-md hover:bg-red-600 text-sm">
+                                                حذف
+                                            </button>
+                                        </div>
                                     )}
                                 </td>
                             </tr>
@@ -178,6 +226,37 @@ const MySimCards = () => {
                         <div className="mt-6 flex justify-end space-x-3 space-x-reverse">
                             <button onClick={() => setEditModalOpen(false)} className="bg-gray-300 dark:bg-gray-600 px-4 py-2 rounded-lg">انصراف</button>
                             <button onClick={handleSave} className="px-4 py-2 rounded-lg text-white bg-blue-600">ذخیره تغییرات</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {isDeleteModalOpen && deletingSim && (
+                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md">
+                        <h3 className="text-lg font-bold mb-4 text-red-600">تایید حذف سیمکارت</h3>
+                        <p className="mb-4">آیا مطمئن هستید که می‌خواهید سیمکارت زیر را به طور کامل حذف کنید؟</p>
+                        <p className="mb-4 text-xl font-bold tracking-wider" style={{direction: 'ltr'}}>{deletingSim.number}</p>
+                        <p className="mb-6 text-sm text-gray-600 dark:text-gray-400">
+                            نوع: {deletingSim.type === 'fixed' ? 'مقطوع' : deletingSim.type === 'auction' ? 'حراجی' : 'استعلامی'} | قیمت: {((deletingSim.type === 'auction' ? deletingSim.auction_details?.current_bid : deletingSim.price) || 0).toLocaleString('fa-IR')} تومان
+                        </p>
+                        <div className="bg-yellow-50 dark:bg-yellow-900/20 border-l-4 border-yellow-500 p-3 mb-4">
+                            <p className="text-sm text-yellow-800 dark:text-yellow-300">⚠️ این عملیات غیرقابل برگشت است!</p>
+                        </div>
+                        <div className="flex justify-end space-x-3 space-x-reverse">
+                            <button 
+                                onClick={() => setDeleteModalOpen(false)} 
+                                className="bg-gray-300 dark:bg-gray-600 px-4 py-2 rounded-lg"
+                                disabled={isDeleting}
+                            >
+                                انصراف
+                            </button>
+                            <button 
+                                onClick={confirmDelete} 
+                                className="px-4 py-2 rounded-lg text-white bg-red-600 hover:bg-red-700 disabled:bg-gray-400"
+                                disabled={isDeleting}
+                            >
+                                {isDeleting ? 'در حال حذف...' : 'حذف قطعی'}
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -439,6 +518,7 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
     const { user } = useAuth();
     const { showNotification } = useNotification();
     const [saleType, setSaleType] = useState<SimCardTypeOption>('fixed');
+    const [minAuctionPrice, setMinAuctionPrice] = useState(1000000);
     const [simData, setSimData] = useState({
         number: '',
         carrier: 'همراه اول',
@@ -448,9 +528,22 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
         startingBid: '',
         endTime: '',
         inquiry_phone_number: '',
-        is_active: true, // New field with default value true
+        is_active: true,
     });
     const [isLoading, setIsLoading] = useState(false);
+
+    // Load minimum auction price from settings
+    React.useEffect(() => {
+        const loadMinPrice = async () => {
+            try {
+                const price = await settingsService.getMinAuctionBasePrice();
+                setMinAuctionPrice(price);
+            } catch (error) {
+                console.error('Error loading min auction price:', error);
+            }
+        };
+        loadMinPrice();
+    }, []);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value, type } = e.target;
@@ -490,9 +583,9 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
             return;
         }
         
-        // Validate auction starting bid minimum
-        if (saleType === 'auction' && parseInt(simData.startingBid, 10) < 1000000) {
-            showNotification('قیمت پایه حراجی نمی تواند کمتر از 1,000,000 تومان باشد.', 'error');
+        // Validate auction starting bid minimum - USE SETTINGS
+        if (saleType === 'auction' && parseInt(simData.startingBid, 10) < minAuctionPrice) {
+            showNotification(`قیمت پایه حراجی نمی تواند کمتر از ${minAuctionPrice.toLocaleString('fa-IR')} تومان باشد.`, 'error');
             return;
         }
         
@@ -608,7 +701,7 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
                             <div>
                                 <label htmlFor="startingBid" className="block mb-2 font-medium">قیمت پایه (تومان)</label>
                                 <input type="number" name="startingBid" id="startingBid" value={simData.startingBid} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600" />
-                                <p className="text-xs text-gray-500 mt-1">حداقل قیمت پایه: 1,000,000 تومان</p>
+                                <p className="text-xs text-gray-500 mt-1">حداقل قیمت پایه: {minAuctionPrice.toLocaleString('fa-IR')} تومان</p>
                             </div>
                             <div>
                                 <label htmlFor="endTime" className="block mb-2 font-medium">زمان پایان حراجی</label>

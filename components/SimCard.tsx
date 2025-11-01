@@ -102,67 +102,72 @@ const SimCard: React.FC<SimCardProps> = ({ sim }) => {
   const buttonInfo = getButtonInfo();
 
   return (
-    <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-lg hover:shadow-2xl transition-shadow duration-300 overflow-hidden flex flex-col">
-       {sim.status === 'sold' && (
-            <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-10">
-                <span className="text-white text-xl font-bold bg-red-600 px-4 py-2 rounded-lg -rotate-12 transform">
-                    فروخته شد
+    <div className="relative flex flex-col h-full">
+      {/* Header Section - Fixed height for consistency */}
+      <div className="bg-gray-50 dark:bg-gray-700/50 px-3 py-2 text-center border-b border-gray-200 dark:border-gray-600 min-h-[80px] flex items-center justify-center">
+        {sim.is_rond ? (
+          <div>
+            <div className="text-xs font-semibold text-yellow-700 dark:text-yellow-400 mb-1">رند</div>
+            <div className="text-sm flex justify-center gap-0.5">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <span key={star} className={star <= (sim.rond_level || 1) ? 'text-yellow-400' : 'text-gray-300'}>
+                  ★
                 </span>
+              ))}
             </div>
+          </div>
+        ) : (
+          <div className="text-xs text-gray-500 dark:text-gray-400">سیمکارت عادی</div>
         )}
-      <div className="p-6 flex-grow">
-        <div className="flex justify-between items-start mb-4 gap-2">
-          <span className={`px-3 py-1 text-xs font-semibold rounded-full ${getCarrierColor(sim.carrier)}`}>
-            {sim.carrier}
-          </span>
-          <div className="flex flex-col items-end gap-1">
-            {sim.is_rond && (
-              <div className="text-center">
-                <div className="px-3 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">
-                  رند
-                </div>
-                <div className="text-lg flex justify-center" title={`رند ${sim.rond_level || 1} ستاره`}>
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <span key={star} className={star <= (sim.rond_level || 1) ? 'text-yellow-400' : 'text-gray-300'}>
-                      ★
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
+      </div>
+
+      {/* Main Card Content */}
+      <div className="relative bg-white dark:bg-gray-800 rounded-b-xl shadow-lg hover:shadow-2xl transition-shadow duration-300 overflow-hidden flex flex-col flex-grow">
+        {sim.status === 'sold' && (
+          <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-10">
+            <span className="text-white text-xl font-bold bg-red-600 px-4 py-2 rounded-lg -rotate-12 transform">
+              فروخته شد
+            </span>
+          </div>
+        )}
+        <div className="p-6 flex-grow">
+          <div className="flex justify-between items-start mb-4 gap-2">
+            <span className={`px-3 py-1 text-xs font-semibold rounded-full ${getCarrierColor(sim.carrier)}`}>
+              {sim.carrier}
+            </span>
             <span className={`px-3 py-1 text-xs font-semibold rounded-full ${getStatusColor(sim.is_active)}`}>
               {getStatusText(sim.is_active)}
             </span>
           </div>
+          <h3 className="text-2xl font-bold text-center tracking-widest text-gray-800 dark:text-gray-100 mb-4" style={{direction: 'ltr'}}>
+            {sim.number.slice(0, 4)} - {sim.number.slice(4, 7)} - {sim.number.slice(7)}
+          </h3>
+          {sim.type === 'auction' && sim.auction_details ? (
+            <div className="text-center bg-gray-50 dark:bg-gray-700 p-3 rounded-lg">
+              <p className="text-sm text-gray-500 dark:text-gray-400">بالاترین پیشنهاد</p>
+              <p className="text-xl font-bold text-green-600 dark:text-green-400">{formatPrice(sim.auction_details.current_bid || 0)} تومان</p>
+              <CountdownTimer endTime={sim.auction_details.end_time} />
+            </div>
+          ) : sim.type === 'inquiry' ? (
+            <div className="text-center bg-gray-50 dark:bg-gray-700 p-3 rounded-lg">
+              <p className="text-sm text-gray-500 dark:text-gray-400">قیمت</p>
+              <p className="text-xl font-bold text-orange-600 dark:text-orange-400">استعلام با تماس</p>
+            </div>
+          ) : (
+            <div className="text-center bg-gray-50 dark:bg-gray-700 p-3 rounded-lg">
+              <p className="text-sm text-gray-500 dark:text-gray-400">قیمت مقطوع</p>
+              <p className="text-xl font-bold text-blue-600 dark:text-blue-400">{formatPrice(sim.price || 0)} تومان</p>
+            </div>
+          )}
         </div>
-        <h3 className="text-2xl font-bold text-center tracking-widest text-gray-800 dark:text-gray-100 mb-4" style={{direction: 'ltr'}}>
-          {sim.number.slice(0, 4)} - {sim.number.slice(4, 7)} - {sim.number.slice(7)}
-        </h3>
-        {sim.type === 'auction' && sim.auction_details ? (
-          <div className="text-center bg-gray-50 dark:bg-gray-700 p-3 rounded-lg">
-            <p className="text-sm text-gray-500 dark:text-gray-400">بالاترین پیشنهاد</p>
-            <p className="text-xl font-bold text-green-600 dark:text-green-400">{formatPrice(sim.auction_details.current_bid || 0)} تومان</p>
-            <CountdownTimer endTime={sim.auction_details.end_time} />
-          </div>
-        ) : sim.type === 'inquiry' ? (
-           <div className="text-center bg-gray-50 dark:bg-gray-700 p-3 rounded-lg">
-             <p className="text-sm text-gray-500 dark:text-gray-400">قیمت</p>
-            <p className="text-xl font-bold text-orange-600 dark:text-orange-400">استعلام با تماس</p>
-          </div>
-        ) : (
-          <div className="text-center bg-gray-50 dark:bg-gray-700 p-3 rounded-lg">
-            <p className="text-sm text-gray-500 dark:text-gray-400">قیمت مقطوع</p>
-            <p className="text-xl font-bold text-blue-600 dark:text-blue-400">{formatPrice(sim.price || 0)} تومان</p>
-          </div>
-        )}
-      </div>
-      <div className="p-4 bg-gray-50 dark:bg-gray-700/50">
-        <Link 
+        <div className="p-4 bg-gray-50 dark:bg-gray-700/50">
+          <Link 
             to={`/sim/${sim.id}`} 
             className={`w-full text-center block font-bold py-3 px-4 rounded-lg text-white transition-colors duration-300 ${buttonInfo.className} ${sim.status === 'sold' ? 'pointer-events-none' : ''}`}
-        >
-          {buttonInfo.text}
-        </Link>
+          >
+            {buttonInfo.text}
+          </Link>
+        </div>
       </div>
     </div>
   );
