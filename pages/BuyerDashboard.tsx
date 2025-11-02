@@ -1,6 +1,6 @@
 import React from 'react';
 import { useState, useEffect } from 'react';
-import { NavLink, Route, Routes, Link } from 'react-router-dom';
+import { NavLink, Route, Routes, Link, useNavigate } from 'react-router-dom';
 import DashboardLayout from '../components/DashboardLayout';
 import SecurePaymentsDisplay from '../components/SecurePaymentsDisplay';
 import BuyerPaymentCodeSection from '../components/BuyerPaymentCodeSection';
@@ -436,9 +436,17 @@ const NavItem: React.FC<{ to: string, children: React.ReactNode, end?: boolean }
 );
 
 const BuyerDashboard: React.FC = () => {
-    const { user, refreshUser } = useAuth();
+    const { user, refreshUser, loading } = useAuth();
     const { processTransaction } = useData();
     const { showNotification } = useNotification();
+    const navigate = useNavigate();
+
+    // Check if user is suspended
+    React.useEffect(() => {
+        if (!loading && user && user.is_suspended) {
+            navigate('/suspended');
+        }
+    }, [user, loading, navigate]);
 
     const handleWalletTransaction = async (amount: number, type: 'deposit' | 'withdrawal') => {
         if (!user) return;

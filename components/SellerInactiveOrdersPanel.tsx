@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '../services/api-supabase';
 import { PurchaseOrder, SupportMessage } from '../types';
 import { useNotification } from '../contexts/NotificationContext';
+import CountdownTimer from './CountdownTimer';
 
 interface SellerInactiveOrdersPanelProps {
     userId: string;
@@ -140,6 +141,27 @@ const SellerInactiveOrdersPanel: React.FC<SellerInactiveOrdersPanelProps> = ({ u
                                 <p className="font-bold text-green-600">{order.seller_received_amount.toLocaleString('fa-IR')} تومان</p>
                             </div>
                         </div>
+
+                        {/* مهلت 48 ساعته فعال‌سازی */}
+                        {order.activation_deadline && !order.is_cancelled && (order.status === 'pending' || order.status === 'code_sent') && (
+                            <div className="bg-orange-50 dark:bg-orange-900/20 border-r-4 border-orange-500 p-4 mb-4 rounded">
+                                <div className="flex justify-between items-center">
+                                    <div>
+                                        <p className="font-semibold text-orange-800 dark:text-orange-300">⚠️ مهلت فعال‌سازی خط:</p>
+                                        <p className="text-sm text-orange-700 dark:text-orange-400">باید ظرف 48 ساعت خط را فعال کنید</p>
+                                    </div>
+                                    <div className="text-left">
+                                        <CountdownTimer 
+                                            targetDate={order.activation_deadline}
+                                            onExpire={() => {
+                                                loadOrders();
+                                            }}
+                                            className="text-lg"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         {/* فروشنده کد را وارد می‌کند */}
                         {order.status === 'pending' && (

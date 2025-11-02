@@ -11,6 +11,12 @@ export interface User {
   package_id?: number;
   // Temporary fields for OTP verification simulation are no longer needed
   total_blocked_amount?: number; // Total amount blocked across all auctions
+  // Suspension system fields
+  is_suspended?: boolean;
+  suspended_at?: string;
+  suspension_reason?: string;
+  negative_score?: number;
+  last_penalty_at?: string;
 }
 
 export type SimCardTypeOption = 'fixed' | 'auction' | 'inquiry';
@@ -108,6 +114,8 @@ export interface SimCard {
     final_winner_id?: string;
   };
   is_active?: boolean; // New field for active/inactive status
+  created_at?: string; // When the listing was created
+  expiry_date?: string; // When the listing will be auto-deleted
 }
 
 export interface Package {
@@ -211,6 +219,11 @@ export interface PurchaseOrder {
     buyer_blocked_amount: number;
     created_at: string;
     updated_at: string;
+    // Activation deadline fields
+    activation_deadline?: string; // 48 hours from purchase
+    is_cancelled?: boolean;
+    cancellation_reason?: string;
+    cancelled_at?: string;
 }
 
 export interface ActivationCode {
@@ -293,6 +306,21 @@ export interface SiteSetting {
     category: 'commission' | 'auction' | 'listing' | 'payment' | 'rond' | 'general';
     updated_at: string;
     updated_by?: string;
+}
+
+// Suspension Request Types
+export type SuspensionRequestStatus = 'pending' | 'approved' | 'rejected';
+
+export interface SuspensionRequest {
+    id: number;
+    user_id: string;
+    message: string;
+    status: SuspensionRequestStatus;
+    admin_response?: string;
+    created_at: string;
+    updated_at: string;
+    reviewed_by?: string;
+    reviewed_at?: string;
 }
 
 export interface SiteSettings {

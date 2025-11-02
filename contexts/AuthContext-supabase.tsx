@@ -1,6 +1,7 @@
 import React, { createContext, useState, useEffect, useCallback, useContext } from 'react';
 import { supabase } from '../services/supabase';
 import { User } from '../types';
+import { useNavigate } from 'react-router-dom';
 
 interface AuthContextType {
   user: User | null;
@@ -24,6 +25,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   const fetchUserProfile = useCallback(async (userId: string) => {
     try {
@@ -37,7 +39,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.error("Error fetching user profile:", error);
         setUser(null);
       } else {
-        setUser(data as User);
+        // Check if user is suspended
+        if (data.is_suspended) {
+          setUser(data as User);
+          // Navigate to suspended page if not already there
+          if (window.location.hash !== '#/suspended') {
+            navigate('/suspended');
+          }
+        } else {
+          setUser(data as User);
+        }
       }
     } catch (error) {
       console.error("Error fetching user profile:", error);
@@ -45,7 +56,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [navigate]);
 
   useEffect(() => {
     const getSession = async () => {

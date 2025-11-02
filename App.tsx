@@ -7,6 +7,7 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import useAuctionProcessor from './hooks/useAuctionProcessor';
 import useAuctionPaymentChecker from './hooks/useAuctionPaymentChecker';
 import useAuctionAutoProcessor from './hooks/useAuctionAutoProcessor';
+import useActivationDeadlineChecker from './hooks/useActivationDeadlineChecker';
 
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
@@ -28,6 +29,7 @@ import RondNumbersPage from './pages/RondNumbersPage';
 import AuctionsPage from './pages/AuctionsPage';
 import PackagesPage from './pages/PackagesPage';
 import CarrierSimsPage from './pages/CarrierSimsPage';
+import SuspendedAccountPage from './pages/SuspendedAccountPage';
 
 const PrivateRoute: React.FC<{ children: React.ReactElement; roles: string[] }> = ({ children, roles }) => {
   const { user, loading } = useAuth();
@@ -69,6 +71,8 @@ const AppContent: React.FC = () => {
   useAuctionAutoProcessor();
   // Add the auto-cleanup hook for expired listings
   useAutoCleanup();
+  // Add the activation deadline checker hook for 48-hour activation monitoring
+  useActivationDeadlineChecker();
   
   return (
     <div className="flex flex-col min-h-screen">
@@ -86,6 +90,7 @@ const AppContent: React.FC = () => {
               <Route path="/carrier/:carrierName" element={<CarrierSimsPage />} />
               <Route path="/zarinpal/callback" element={<ZarinPalCallbackPage />} />
               <Route path="/notifications" element={<NotificationsPage />} />
+              <Route path="/suspended" element={<SuspendedAccountPage />} />
 
               <Route
                 path="/admin/*"

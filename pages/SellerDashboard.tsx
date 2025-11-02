@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import React, { useState } from 'react';
 // FIX: Upgrading react-router-dom from v5 to v6.
 import { NavLink, Route, Routes, useNavigate } from 'react-router-dom';
 import DashboardLayout from '../components/DashboardLayout';
@@ -7,6 +6,7 @@ import SecurePaymentSection from '../components/SecurePaymentSection';
 import SecurePaymentsDisplay from '../components/SecurePaymentsDisplay';
 import SellerInactiveOrdersPanel from '../components/SellerInactiveOrdersPanel';
 import SellerActiveOrdersPanel from '../components/SellerActiveOrdersPanel';
+import CountdownTimer from '../components/CountdownTimer';
 import { useAuth } from '../hooks/useAuth';
 import { useData } from '../hooks/useData';
 import { SimCard, Package, SimCardTypeOption } from '../types';
@@ -169,6 +169,7 @@ const MySimCards = () => {
                             <th className="p-3">نوع</th>
                             <th className="p-3">وضعیت</th>
                             <th className="p-3">فعالیت</th>
+                            <th className="p-3">زمان باقی‌مانده</th>
                             <th className="p-3">عملیات</th>
                         </tr>
                     </thead>
@@ -187,6 +188,18 @@ const MySimCards = () => {
                                     <span className={`px-2 py-1 text-xs rounded-full ${sim.is_active ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-800'}`}>
                                         {sim.is_active ? 'فعال' : 'غیرفعال'}
                                     </span>
+                                </td>
+                                <td className="p-3">
+                                    {sim.expiry_date ? (
+                                        <CountdownTimer 
+                                            targetDate={sim.expiry_date}
+                                            onExpire={() => {
+                                                showNotification('آگهی منقضی شد', 'warning');
+                                            }}
+                                        />
+                                    ) : (
+                                        <span className="text-gray-500">نامحدود</span>
+                                    )}
                                 </td>
                                 <td className="p-3">
                                     {sim.status === 'available' && (
@@ -929,6 +942,13 @@ const SellerDashboard: React.FC = () => {
     const { addSimCard, processTransaction, updateUserPackage } = useData();
     const navigate = useNavigate();
     const { showNotification } = useNotification();
+
+    // Check if user is suspended
+    React.useEffect(() => {
+        if (!loading && user && user.is_suspended) {
+            navigate('/suspended');
+        }
+    }, [user, loading, navigate]);
 
     // Show loading indicator while user data is being loaded
     if (loading) {
