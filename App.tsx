@@ -50,6 +50,11 @@ const AppContent: React.FC = () => {
   const location = useLocation();
   const { fetchData } = useData();
   
+  // Scroll to top on route change
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
+  
   // Refresh data whenever route changes
   useEffect(() => {
     console.log('🔄 Route changed, refreshing data...', location.pathname);

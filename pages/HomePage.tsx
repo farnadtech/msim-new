@@ -16,6 +16,7 @@ interface SearchCriteria {
     maxPrice: string;
     isRond: boolean;
     rondLevel: number;
+    maxRondLevel: number;
     pattern: string[];
 }
 
@@ -49,12 +50,12 @@ const HomePage: React.FC = () => {
             const maxPrice = criteria.maxPrice ? parseInt(criteria.maxPrice) : Number.MAX_SAFE_INTEGER;
             const priceMatch = sim.price >= minPrice && sim.price <= maxPrice;
 
-            // Rond filtering - range based (1 to selected level)
+            // Rond filtering - range based (selected min to selected max)
             let rondMatch = true;
             if (criteria.isRond) {
                 rondMatch = sim.is_rond === true && 
-                           (sim.rond_level || 1) >= 1 && 
-                           (sim.rond_level || 1) <= criteria.rondLevel;
+                           (sim.rond_level || 1) >= criteria.rondLevel && 
+                           (sim.rond_level || 1) <= criteria.maxRondLevel;
             }
 
             const patternString = criteria.pattern.map(p => p || '.').join('');
@@ -156,6 +157,7 @@ const HomePage: React.FC = () => {
                                     maxPrice: '', 
                                     isRond: false, 
                                     rondLevel: 1, 
+                                    maxRondLevel: 5, 
                                     pattern: Array(11).fill('') 
                                 });
                             }}

@@ -8,6 +8,7 @@ interface SearchCriteria {
     maxPrice: string;
     isRond: boolean;
     rondLevel: number;
+    maxRondLevel: number;
     pattern: string[];
 }
 
@@ -24,7 +25,7 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({ onSearch }) => {
         maxPrice: '',
         isRond: false
     });
-    const [rondLevel, setRondLevel] = useState(1);
+    const [rondRange, setRondRange] = useState({ min: 1, max: 5 });
     const [priceRange, setPriceRange] = useState({ min: 0, max: 10000000 });
     const [pattern, setPattern] = useState<string[]>(Array(11).fill(''));
 
@@ -38,9 +39,14 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({ onSearch }) => {
         setCriteria(prev => ({ ...prev, isRond: checked }));
     };
 
-    const handleRondLevelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const handleRondMinChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const value = parseInt(e.target.value);
-        setRondLevel(value);
+        setRondRange(prev => ({ ...prev, min: value }));
+    };
+
+    const handleRondMaxChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const value = parseInt(e.target.value);
+        setRondRange(prev => ({ ...prev, max: value }));
     };
 
     const handleMinPriceSlide = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -69,7 +75,7 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({ onSearch }) => {
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        onSearch({ ...criteria, pattern, rondLevel });
+        onSearch({ ...criteria, pattern, rondLevel: rondRange.min, maxRondLevel: rondRange.max });
     };
 
     return (
@@ -139,8 +145,8 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({ onSearch }) => {
                             <div className="flex items-center space-x-2 rtl:space-x-reverse">
                                 <select
                                     id="rond-level-min"
-                                    value={rondLevel}
-                                    onChange={handleRondLevelChange}
+                                    value={rondRange.min}
+                                    onChange={handleRondMinChange}
                                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring focus:ring-blue-200 dark:bg-gray-700"
                                 >
                                     <option value="1">۱ ستاره</option>
@@ -152,16 +158,15 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({ onSearch }) => {
                                 <span className="text-gray-500 dark:text-gray-400">تا</span>
                                 <select
                                     id="rond-level-max"
-                                    value={5}
-                                    onChange={() => {}}
+                                    value={rondRange.max}
+                                    onChange={handleRondMaxChange}
                                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring focus:ring-blue-200 dark:bg-gray-700"
-                                    disabled
                                 >
                                     <option value="1">۱ ستاره</option>
                                     <option value="2">۲ ستاره</option>
                                     <option value="3">۳ ستاره</option>
                                     <option value="4">۴ ستاره</option>
-                                    <option value="5" selected>۵ ستاره</option>
+                                    <option value="5">۵ ستاره</option>
                                 </select>
                             </div>
                         </div>
