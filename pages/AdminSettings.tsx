@@ -4,6 +4,13 @@ import { useNotification } from '../contexts/NotificationContext';
 import { SiteSetting } from '../types';
 import { supabase } from '../services/supabase';
 
+interface CategoryInfo {
+    icon: string;
+    label: string;
+    color: string;
+    description: string;
+}
+
 const AdminSettings: React.FC = () => {
     const { user } = useAuth();
     const { showNotification } = useNotification();
@@ -12,6 +19,8 @@ const AdminSettings: React.FC = () => {
     const [saving, setSaving] = useState(false);
     const [editedValues, setEditedValues] = useState<Record<string, string>>({});
     const [activeCategory, setActiveCategory] = useState<string>('all');
+    const [searchQuery, setSearchQuery] = useState<string>('');
+    const [expandedSettings, setExpandedSettings] = useState<Set<string>>(new Set());
 
     useEffect(() => {
         loadSettings();
@@ -129,16 +138,48 @@ const AdminSettings: React.FC = () => {
         showNotification('این قابلیت به زودی اضافه می‌شود', 'info');
     };
 
+    const categoryInfo: Record<string, CategoryInfo> = {
+        commission: {
+            icon: '💰',
+            label: 'کمیسیون',
+            color: 'from-emerald-500 to-teal-600',
+            description: 'تنظیمات کمیسیون و سهم سایت'
+        },
+        auction: {
+            icon: '🏆',
+            label: 'حراجی',
+            color: 'from-purple-500 to-pink-600',
+            description: 'تنظیمات مربوط به حراجی‌های محصول'
+        },
+        listing: {
+            icon: '📋',
+            label: 'آگهی‌ها',
+            color: 'from-blue-500 to-cyan-600',
+            description: 'مدیریت ایام نمایش و حذف خودکار'
+        },
+        payment: {
+            icon: '💳',
+            label: 'پرداخت',
+            color: 'from-orange-500 to-red-600',
+            description: 'درگاه‌های پرداخت و حداقل مبالغ'
+        },
+        rond: {
+            icon: '⭐',
+            label: 'رند',
+            color: 'from-yellow-500 to-amber-600',
+            description: 'هزینه‌های درجات رند مختلف'
+        },
+        general: {
+            icon: '⚙️',
+            label: 'عمومی',
+            color: 'from-gray-500 to-slate-600',
+            description: 'تنظیمات عمومی سایت'
+        }
+    };
+
     const getCategoryLabel = (category: string): string => {
-        const labels: Record<string, string> = {
-            commission: '💰 کمیسیون',
-            auction: '🏆 حراجی',
-            listing: '📋 آگهی‌ها',
-            payment: '💳 پرداخت',
-            rond: '⭐ رند',
-            general: '⚙️ عمومی'
-        };
-        return labels[category] || category;
+        const info = categoryInfo[category];
+        return info ? `${info.icon} ${info.label}` : category;
     };
 
     const renderSettingInput = (setting: SiteSetting) => {
@@ -220,9 +261,28 @@ const AdminSettings: React.FC = () => {
     };
 
     const categories = ['all', 'commission', 'auction', 'listing', 'payment', 'rond', 'general'];
-    const filteredSettings = activeCategory === 'all' 
+    
+    let filteredSettings = activeCategory === 'all' 
         ? settings 
         : settings.filter(s => s.category === activeCategory);
+    
+    if (searchQuery.trim()) {
+        filteredSettings = filteredSettings.filter(s => 
+            s.description.includes(searchQuery) || 
+            s.setting_key.includes(searchQuery) ||
+            s.setting_value.includes(searchQuery)
+        );
+    }
+
+    const toggleExpanded = (key: string) => {
+        const newExpanded = new Set(expandedSettings);
+        if (newExpanded.has(key)) {
+            newExpanded.delete(key);
+        } else {
+            newExpanded.add(key);
+        }
+        setExpandedSettings(newExpanded);
+    };
 
     if (loading) {
         return (
@@ -232,91 +292,201 @@ const AdminSettings: React.FC = () => {
         );
     }
 
+    // Count changed settings
+    const changedCount = Object.entries(editedValues).filter(([key, value]) => {
+        const original = settings.find(s => s.setting_key === key)?.setting_value;
+        return value !== original;
+    }).length;
+
     return (
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
-            <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-bold">⚙️ تنظیمات سایت</h2>
-                <div className="flex space-x-3 space-x-reverse">
-                    <button
-                        onClick={handleSaveAll}
-                        disabled={saving}
-                        className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
-                    >
-                        {saving ? 'در حال ذخیره...' : 'ذخیره همه تغییرات'}
-                    </button>
-                    <button
-                        onClick={handleResetToDefaults}
-                        className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700"
-                    >
-                        بازگشت به پیش‌فرض
-                    </button>
-                </div>
-            </div>
-
-            {/* Category Tabs */}
-            <div className="flex flex-wrap gap-2 mb-6 border-b dark:border-gray-700 pb-3">
-                {categories.map(cat => (
-                    <button
-                        key={cat}
-                        onClick={() => setActiveCategory(cat)}
-                        className={`px-4 py-2 rounded-t-lg transition-colors ${
-                            activeCategory === cat
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600'
-                        }`}
-                    >
-                        {cat === 'all' ? '🌐 همه' : getCategoryLabel(cat)}
-                    </button>
-                ))}
-            </div>
-
-            {/* Settings List */}
-            <div className="space-y-4">
-                {filteredSettings.length > 0 ? (
-                    filteredSettings.map(setting => (
-                        <div 
-                            key={setting.id}
-                            className="border dark:border-gray-700 rounded-lg p-4 hover:shadow-lg transition-shadow"
-                        >
-                            <div className="flex justify-between items-start">
-                                <div className="flex-1">
-                                    <div className="flex items-center space-x-2 space-x-reverse mb-2">
-                                        <h3 className="font-bold text-lg">{setting.description}</h3>
-                                        <span className="text-xs px-2 py-1 bg-gray-200 dark:bg-gray-700 rounded">
-                                            {getCategoryLabel(setting.category)}
-                                        </span>
-                                    </div>
-                                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-                                        کلید: <code className="bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">{setting.setting_key}</code>
+        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 p-6">
+            <div className="max-w-6xl mx-auto">
+                {/* Header */}
+                <div className="mb-8">
+                    <div className="flex justify-between items-start mb-4">
+                        <div>
+                            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2">
+                                ⚙️ تنظیمات سایت
+                            </h1>
+                            <p className="text-gray-600 dark:text-gray-400">مدیریت تمام پارامترهای سایت از یک جا</p>
+                        </div>
+                        <div className="flex space-x-3 space-x-reverse">
+                            {changedCount > 0 && (
+                                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded-lg px-4 py-2">
+                                    <p className="text-sm text-yellow-800 dark:text-yellow-200 font-semibold">
+                                        {changedCount} تغییر در انتظار ذخیره
                                     </p>
-                                    {renderSettingInput(setting)}
-                                    {setting.updated_at && (
-                                        <p className="text-xs text-gray-400 mt-2">
-                                            آخرین به‌روزرسانی: {new Date(setting.updated_at).toLocaleDateString('fa-IR')} 
-                                            {' - '}
-                                            {new Date(setting.updated_at).toLocaleTimeString('fa-IR')}
+                                </div>
+                            )}
+                            <button
+                                onClick={handleSaveAll}
+                                disabled={saving || changedCount === 0}
+                                className="bg-gradient-to-r from-green-600 to-emerald-600 text-white px-6 py-2 rounded-lg hover:from-green-700 hover:to-emerald-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all font-semibold"
+                            >
+                                {saving ? '⏳ در حال ذخیره...' : '✓ ذخیره تغییرات'}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Search Bar */}
+                    <div className="flex gap-4">
+                        <input
+                            type="text"
+                            placeholder="جستجو در تنظیمات... (توضیح، کلید یا مقدار)"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                        />
+                    </div>
+                </div>
+
+                {/* Category Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+                    {categories.filter(c => c !== 'all').map(cat => {
+                        const info = categoryInfo[cat];
+                        const catSettings = settings.filter(s => s.category === cat);
+                        return (
+                            <button
+                                key={cat}
+                                onClick={() => {
+                                    setActiveCategory(cat);
+                                    setSearchQuery('');
+                                }}
+                                className={`p-4 rounded-lg border-2 transition-all text-left ${
+                                    activeCategory === cat
+                                        ? `bg-gradient-to-br ${info.color} text-white border-current shadow-lg`
+                                        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                                }`}
+                            >
+                                <div className="flex items-start justify-between">
+                                    <div>
+                                        <p className="text-2xl mb-1">{info.icon}</p>
+                                        <h3 className={`font-bold text-lg ${
+                                            activeCategory === cat ? 'text-white' : ''
+                                        }`}>
+                                            {info.label}
+                                        </h3>
+                                        <p className={`text-sm ${
+                                            activeCategory === cat 
+                                                ? 'text-white/80' 
+                                                : 'text-gray-600 dark:text-gray-400'
+                                        }`}>
+                                            {info.description}
                                         </p>
-                                    )}
+                                    </div>
+                                    <span className={`text-2xl font-bold ${
+                                        activeCategory === cat ? 'text-white' : 'text-gray-600 dark:text-gray-400'
+                                    }`}>
+                                        {catSettings.length}
+                                    </span>
+                                </div>
+                            </button>
+                        );
+                    })}
+                </div>
+
+                {/* Active Category View */}
+                <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+                    {activeCategory !== 'all' && (
+                        <div className="mb-6 pb-4 border-b dark:border-gray-700">
+                            <div className="flex items-center gap-3 mb-2">
+                                <span className="text-4xl">{categoryInfo[activeCategory]?.icon}</span>
+                                <div>
+                                    <h2 className="text-2xl font-bold">{categoryInfo[activeCategory]?.label}</h2>
+                                    <p className="text-gray-600 dark:text-gray-400">{categoryInfo[activeCategory]?.description}</p>
                                 </div>
                             </div>
                         </div>
-                    ))
+                    )}
+
+                {/* Settings List */}
+                {loading ? (
+                    <div className="flex justify-center py-12">
+                        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div>
+                    </div>
+                ) : filteredSettings.length > 0 ? (
+                    <div className="space-y-3">
+                        {filteredSettings.map(setting => {
+                            const value = editedValues[setting.setting_key] || setting.setting_value;
+                            const hasChanged = value !== setting.setting_value;
+                            const isExpanded = expandedSettings.has(setting.setting_key);
+                            return (
+                                <div
+                                    key={setting.id}
+                                    className={`border dark:border-gray-700 rounded-lg overflow-hidden transition-all ${
+                                        hasChanged ? 'bg-yellow-50 dark:bg-yellow-900/10 border-yellow-300 dark:border-yellow-600' : 'hover:shadow-md'
+                                    }`}
+                                >
+                                    {/* Setting Header */}
+                                    <div
+                                        onClick={() => toggleExpanded(setting.setting_key)}
+                                        className="p-4 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
+                                    >
+                                        <div className="flex justify-between items-start gap-4">
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <h3 className="font-bold text-lg leading-tight text-gray-900 dark:text-white">
+                                                        {setting.description}
+                                                    </h3>
+                                                    {hasChanged && (
+                                                        <span className="inline-block px-2 py-1 text-xs font-semibold bg-yellow-200 dark:bg-yellow-800 text-yellow-900 dark:text-yellow-100 rounded">
+                                                            تغییر نیافته
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+                                                    {setting.setting_key}
+                                                </p>
+                                            </div>
+                                            <span className={`text-xl transition-transform ${
+                                                isExpanded ? 'rotate-90' : ''
+                                            }`}>
+                                                ▶️
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Setting Details */}
+                                    {isExpanded && (
+                                        <div className="border-t dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-700/20">
+                                            <div className="mb-4">
+                                                {renderSettingInput(setting)}
+                                            </div>
+                                            {setting.updated_at && (
+                                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                                    آخرین به‌روزرسانی: {new Date(setting.updated_at).toLocaleDateString('fa-IR')} {' '}
+                                                    {new Date(setting.updated_at).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })}
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
                 ) : (
-                    <div className="text-center py-8 text-gray-500">
-                        هیچ تنظیماتی در این دسته‌بندی یافت نشد
+                    <div className="text-center py-12">
+                        <p className="text-gray-500 dark:text-gray-400 text-lg">
+                            🔍 هیچ تنظیماتی یافت نشد
+                        </p>
                     </div>
                 )}
-            </div>
+                </div>
 
-            {/* Info Box */}
-            <div className="mt-6 bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 p-4 rounded">
-                <h4 className="font-bold text-blue-900 dark:text-blue-200 mb-2">ℹ️ راهنما:</h4>
-                <ul className="text-sm text-blue-800 dark:text-blue-300 space-y-1">
-                    <li>• تغییرات بلافاصله پس از ذخیره اعمال می‌شوند</li>
-                    <li>• برای تنظیمات نرخ (مانند کمیسیون)، از اعداد اعشاری استفاده کنید (مثال: 0.02 برای 2%)</li>
-                    <li>• زمان‌ها به ساعت یا روز محاسبه می‌شوند</li>
-                    <li>• مبالغ به تومان هستند</li>
-                </ul>
+                {/* Footer Info */}
+                <div className="mt-6 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-5">
+                    <div className="flex gap-3 mb-3">
+                        <span className="text-2xl">📌</span>
+                        <h4 className="font-bold text-blue-900 dark:text-blue-100">راهنمای و قوانین</h4>
+                    </div>
+                    <ul className="text-sm text-blue-800 dark:text-blue-200 space-y-2 ml-4">
+                        <li>✅ تغییرات بلافاصله پس از ذخیره تمام سایت را تحت تاثیر قرار می‌دهد</li>
+                        <li>📁 برای نرخ‌ها (مانند کمیسیون):‌ از اعداد اعشاری استفاده کنید (مثال: 0.02 برای 2%)</li>
+                        <li>⏰ زمان‌ها: به ساعت یا روز محاسبه می‌شوند</li>
+                        <li>💵 مبالغ: به تومان</li>
+                        <li>✅ بولی ‌مقادیر: فقط 'true' یا 'false'</li>
+                    </ul>
+                </div>
             </div>
         </div>
     );
