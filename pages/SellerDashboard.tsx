@@ -505,20 +505,21 @@ const SellerWallet = ({ onTransaction }: { onTransaction: (amount: number, type:
     );
 };
 
-// Round pricing configuration
-const ROND_PRICES: { [key in 1 | 2 | 3 | 4 | 5]: number } = {
-    1: 5000,
-    2: 10000,
-    3: 15000,
-    4: 20000,
-    5: 25000
-};
+// Round pricing configuration - REMOVED (Now uses settings service)
+// const ROND_PRICES: { [key in 1 | 2 | 3 | 4 | 5]: number } = {
+//     1: 5000,
+//     2: 10000,
+//     3: 15000,
+//     4: 20000,
+//     5: 25000
+// };
 
 const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller_id' | 'status'>) => Promise<void> }) => {
     const { user } = useAuth();
     const { showNotification } = useNotification();
     const [saleType, setSaleType] = useState<SimCardTypeOption>('fixed');
     const [minAuctionPrice, setMinAuctionPrice] = useState(1000000);
+    const [rondPrices, setRondPrices] = useState<{ [key in 1 | 2 | 3 | 4 | 5]: number }>({1: 5000, 2: 10000, 3: 15000, 4: 20000, 5: 25000});
     const [simData, setSimData] = useState({
         number: '',
         carrier: 'همراه اول',
@@ -532,17 +533,23 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
     });
     const [isLoading, setIsLoading] = useState(false);
 
-    // Load minimum auction price from settings
+    // Load settings on component mount
     React.useEffect(() => {
-        const loadMinPrice = async () => {
+        const loadSettings = async () => {
             try {
-                const price = await settingsService.getMinAuctionBasePrice();
-                setMinAuctionPrice(price);
+                const minPrice = await settingsService.getMinAuctionBasePrice();
+                setMinAuctionPrice(minPrice);
+                
+                // Load dynamic rond prices from settings
+                const prices = await settingsService.getAllRondPrices();
+                setRondPrices(prices as { [key in 1 | 2 | 3 | 4 | 5]: number });
             } catch (error) {
-                console.error('Error loading min auction price:', error);
+                console.error('Error loading settings:', error);
+                // Fall back to defaults
+                setRondPrices({1: 5000, 2: 10000, 3: 15000, 4: 20000, 5: 25000});
             }
         };
-        loadMinPrice();
+        loadSettings();
     }, []);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -550,7 +557,7 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
         const isCheckbox = type === 'checkbox';
 
         if (name === 'is_rond' && isCheckbox && (e.target as HTMLInputElement).checked) {
-            if (user && (user.wallet_balance || 0) < ROND_PRICES[simData.rond_level]) {
+            if (user && (user.wallet_balance || 0) < rondPrices[simData.rond_level]) {
                 // This check is mostly redundant due to the 'disabled' prop, but serves as a safeguard.
                 return;
             }
@@ -741,20 +748,20 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
                                 checked={simData.is_rond} 
                                 onChange={handleChange} 
                                 className="w-5 h-5 ml-3 rounded disabled:opacity-50" 
-                                disabled={(user.wallet_balance || 0) < ROND_PRICES[simData.rond_level]}
+                                disabled={(user.wallet_balance || 0) < rondPrices[simData.rond_level]}
                             />
-                            <label htmlFor="is_rond" className={`font-medium ${(user.wallet_balance || 0) < ROND_PRICES[simData.rond_level] ? 'text-gray-400' : ''}`}>شماره رند است</label>
+                            <label htmlFor="is_rond" className={`font-medium ${(user.wallet_balance || 0) < rondPrices[simData.rond_level] ? 'text-gray-400' : ''}`}>شماره رند است</label>
                         </div>
                         {simData.is_rond && (
                             <div className="mt-3">
                                 <label className="block mb-2 font-medium">انتخاب سطح رند</label>
-                                <div className="grid grid-cols-5 gap-2">
+                                <div className="grid grid-cols-5 gap-1 md:gap-2">
                                     {([1, 2, 3, 4, 5] as const).map((level) => (
                                         <button
                                             key={level}
                                             type="button"
                                             onClick={() => setSimData(prev => ({ ...prev, rond_level: level }))}
-                                            className={`py-2 px-2 rounded-lg font-bold transition-colors ${
+                                            className={`py-2 px-1 md:px-2 rounded-lg font-bold transition-colors text-xs md:text-sm ${
                                                 simData.rond_level === level
                                                     ? 'bg-blue-600 text-white'
                                                     : 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
@@ -762,13 +769,13 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
                                         >
                                             <div className="text-xs">رند {level}</div>
                                             <div className="text-xs mt-1">{'⭐'.repeat(level)}</div>
-                                            <div className="text-xs mt-1">{ROND_PRICES[level].toLocaleString('fa-IR')}</div>
+                                            <div className="text-xs mt-1">{rondPrices[level].toLocaleString('fa-IR')}</div>
                                         </button>
                                     ))}
                                 </div>
-                                {(user.wallet_balance || 0) < ROND_PRICES[simData.rond_level] && (
+                                {(user.wallet_balance || 0) < rondPrices[simData.rond_level] && (
                                     <p className="text-xs text-red-500 mt-2">
-                                        موجودی کافی نیست. نیاز به {ROND_PRICES[simData.rond_level].toLocaleString('fa-IR')} تومان
+                                        موجودی کافی نیست. نیاز به {rondPrices[simData.rond_level].toLocaleString('fa-IR')} تومان
                                     </p>
                                 )}
                             </div>

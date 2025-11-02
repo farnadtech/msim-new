@@ -3,6 +3,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useNotification } from '../contexts/NotificationContext';
 import { SiteSetting } from '../types';
 import { supabase } from '../services/supabase';
+import * as settingsService from '../services/settings-service';
 
 interface CategoryInfo {
     icon: string;
@@ -78,6 +79,9 @@ const AdminSettings: React.FC = () => {
             
             if (error) throw error;
             
+            // Clear settings cache to force refresh everywhere
+            settingsService.clearSettingsCache();
+            
             // Update local state
             setSettings(prev => prev.map(s => 
                 s.setting_key === settingKey 
@@ -85,7 +89,7 @@ const AdminSettings: React.FC = () => {
                     : s
             ));
             
-            showNotification('تنظیمات با موفقیت ذخیره شد', 'success');
+            showNotification('تنظیمات با موفقیت ذخیره شد و در سراسر سایت به روز شد', 'success');
         } catch (error) {
             console.error('Error saving setting:', error);
             showNotification('خطا در ذخیره تنظیمات', 'error');
@@ -119,8 +123,11 @@ const AdminSettings: React.FC = () => {
                 }
             }
             
+            // Clear settings cache to force refresh everywhere
+            settingsService.clearSettingsCache();
+            
             await loadSettings();
-            showNotification('همه تنظیمات با موفقیت ذخیره شد', 'success');
+            showNotification('تمام تنظیمات با موفقیت ذخیره شد و در سراسر سایت به روز شد', 'success');
         } catch (error) {
             console.error('Error saving all settings:', error);
             showNotification('خطا در ذخیره تنظیمات', 'error');
