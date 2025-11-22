@@ -65,8 +65,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (session?.user) {
         fetchUserProfile(session.user.id);
       } else {
-        setUser(null);
-        setLoading(false);
+        // Check if user logged in via OTP (stored in localStorage)
+        const otpUserId = localStorage.getItem('otp-verified-user-id');
+        if (otpUserId) {
+          console.log('📄 Found OTP-verified user in localStorage:', otpUserId);
+          fetchUserProfile(otpUserId);
+        } else {
+          setUser(null);
+          setLoading(false);
+        }
       }
     };
 
@@ -77,8 +84,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (session?.user) {
         fetchUserProfile(session.user.id);
       } else {
-        setUser(null);
-        setLoading(false);
+        // Check for OTP-verified user
+        const otpUserId = localStorage.getItem('otp-verified-user-id');
+        if (otpUserId) {
+          console.log('📄 Using OTP-verified user from localStorage:', otpUserId);
+          fetchUserProfile(otpUserId);
+        } else {
+          setUser(null);
+          setLoading(false);
+        }
       }
     });
 
@@ -96,6 +110,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = useCallback(async () => {
     try {
+      // Clear OTP login data
+      localStorage.removeItem('otp-verified-user-id');
+      localStorage.removeItem('otp-verified-user-email');
+      localStorage.removeItem('otp-login-timestamp');
+      
       await supabase.auth.signOut();
     } catch (error) {
       console.error("Error signing out:", error);

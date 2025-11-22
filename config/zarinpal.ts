@@ -1,7 +1,7 @@
 // ZarinPal configuration
 export const ZARINPAL_CONFIG = {
   // In a real implementation, you would use the actual merchant ID
-  MERCHANT_ID: '492a440e-1e9b-4581-b466-c7922341b4fa',
+  MERCHANT_ID: '27086335-7570-4d2b-8eb9-895a4e7f8e56',
   
   // API endpoints
   REQUEST_URL: 'https://api.zarinpal.com/pg/v4/payment/request.json',
@@ -12,7 +12,7 @@ export const ZARINPAL_CONFIG = {
   SANDBOX: true,
   
   // Callback URL where users will be redirected after payment
-  CALLBACK_URL: 'http://localhost:5173/#/zarinpal/callback'
+  CALLBACK_URL: 'http://msim724.com/#/zarinpal/callback'
 };
 
 export default ZARINPAL_CONFIG;

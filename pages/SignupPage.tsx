@@ -9,9 +9,7 @@ import { UserRole } from '../types';
 const SignupPage: React.FC = () => {
   const [formData, setFormData] = useState({
     name: '',
-    email: '',
     phoneNumber: '',
-    password: '',
     role: 'buyer' as UserRole,
   });
   const [otpCode, setOtpCode] = useState('');
@@ -66,20 +64,8 @@ const SignupPage: React.FC = () => {
         return;
       }
 
-      if (!formData.email.trim()) {
-        setError('لطفاً ایمیل خود را وارد کنید.');
-        setIsLoading(false);
-        return;
-      }
-
       if (!formData.phoneNumber || formData.phoneNumber.length !== 11) {
         setError('شماره تلفن باید 11 رقم باشد.');
-        setIsLoading(false);
-        return;
-      }
-
-      if (!formData.password || formData.password.length < 6) {
-        setError('رمز عبور باید حداقل 6 کاراکتر باشد.');
         setIsLoading(false);
         return;
       }
@@ -118,17 +104,23 @@ const SignupPage: React.FC = () => {
         return;
       }
 
-      // OTP verified, now create account with email + password + phone
-      const userCredential = await api.signup(formData.email, formData.password);
+      // OTP verified, create account
+      // Use phone as both email (with domain) and password
+      const formattedPhone = formData.phoneNumber;
+      const email = `${formattedPhone}@msim724.phone`;
+      const password = formattedPhone;
+
+      // Create Supabase auth user
+      const userCredential = await api.signup(email, password);
       
-      // Create user profile with correct field name
+      // Create user profile
       const { error: profileError } = await supabase
         .from('users')
         .insert({
           id: userCredential.user.id,
           name: formData.name,
-          email: formData.email,
-          phone_number: formData.phoneNumber,
+          email,
+          phone_number: formattedPhone,
           role: formData.role,
           wallet_balance: 0,
           blocked_balance: 0
@@ -196,106 +188,53 @@ const SignupPage: React.FC = () => {
                 name="name" 
                 value={formData.name} 
                 onChange={handleDetailsChange} 
-                required 
-                disabled={isLoading} 
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring focus:ring-blue-200 dark:bg-gray-700"
-                placeholder="علی احمدی"
+                placeholder="علی محمدی"
+                required 
+                disabled={isLoading} 
               />
             </div>
 
             <div>
-              <label htmlFor="email" className="block mb-2 text-sm font-medium">ایمیل</label>
-              <input 
-                type="email" 
-                id="email" 
-                name="email" 
-                value={formData.email} 
-                onChange={handleDetailsChange} 
-                required 
-                disabled={isLoading} 
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring focus:ring-blue-200 dark:bg-gray-700" 
-                placeholder="user@example.com" 
-              />
-            </div>
-
-            <div>
-              <label htmlFor="phoneNumber" className="block mb-2 text-sm font-medium">شماره موبایل</label>
-              <input 
-                type="tel" 
-                id="phoneNumber" 
-                name="phoneNumber" 
-                value={formData.phoneNumber} 
-                onChange={handlePhoneChange} 
-                required 
-                disabled={isLoading} 
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring focus:ring-blue-200 dark:bg-gray-700 text-center tracking-wider" 
+              <label htmlFor="phone" className="block mb-2 text-sm font-medium">شماره موبایل</label>
+              <input
+                type="tel"
+                id="phone"
+                value={formData.phoneNumber}
+                onChange={handlePhoneChange}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring focus:ring-blue-200 dark:bg-gray-700 text-center tracking-wider"
                 placeholder="09123456789"
+                required
+                disabled={isLoading}
                 maxLength={11}
                 pattern="09[0-9]{9}"
                 dir="ltr"
               />
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">مثال: 09123456789</p>
             </div>
 
             <div>
-              <label htmlFor="password" className="block mb-2 text-sm font-medium">رمز عبور</label>
-              <input 
-                type="password" 
-                id="password" 
-                name="password" 
-                value={formData.password} 
-                onChange={handleDetailsChange} 
-                required 
-                disabled={isLoading} 
+              <label htmlFor="role" className="block mb-2 text-sm font-medium">نقش شما</label>
+              <select
+                id="role"
+                name="role"
+                value={formData.role}
+                onChange={handleDetailsChange}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring focus:ring-blue-200 dark:bg-gray-700"
-                minLength={6}
-              />
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">حداقل 6 کاراکتر</p>
+                disabled={isLoading}
+              >
+                <option value="buyer">خریدار</option>
+                <option value="seller">فروشنده</option>
+              </select>
             </div>
 
-            <div>
-              <label className="block mb-2 text-sm font-medium">قصد... را دارم</label>
-              <div className="flex space-x-4 space-x-reverse">
-                <label className="flex items-center">
-                  <input 
-                    type="radio" 
-                    name="role" 
-                    value="buyer" 
-                    checked={formData.role === 'buyer'} 
-                    onChange={handleDetailsChange} 
-                    className="ml-2" 
-                  /> 
-                  خرید سیمکارت
-                </label>
-                <label className="flex items-center">
-                  <input 
-                    type="radio" 
-                    name="role" 
-                    value="seller" 
-                    checked={formData.role === 'seller'} 
-                    onChange={handleDetailsChange} 
-                    className="ml-2" 
-                  /> 
-                  فروش سیمکارت
-                </label>
-              </div>
-            </div>
-
-            {error && <p className="text-sm text-red-600">{error}</p>}
-
+            {error && <p className="text-sm text-red-600 whitespace-pre-line">{error}</p>}
             <button 
               type="submit" 
               className="w-full px-4 py-2 text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400" 
-              disabled={isLoading || formData.phoneNumber.length !== 11}
+              disabled={isLoading || formData.phoneNumber.length !== 11 || !formData.name.trim()}
             >
-              {isLoading ? 'در حال ارسال کد...' : 'ارسال کد تایید'}
+              {isLoading ? 'در حال ارسال...' : 'ارسال کد تایید'}
             </button>
-
-            <div className="text-center">
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                قبلاً ثبت نام کرده اید؟ <Link to="/login" className="font-medium text-blue-600 hover:underline">وارد شوید</Link>
-              </p>
-            </div>
           </form>
         ) : (
           <form onSubmit={handleVerifyAndSignup} className="space-y-6">
@@ -306,7 +245,6 @@ const SignupPage: React.FC = () => {
                   type="button"
                   onClick={() => setStep('details')}
                   className="text-xs text-blue-600 hover:underline"
-                  disabled={isLoading}
                 >
                   ✏️ ویرایش اطلاعات
                 </button>
@@ -332,17 +270,14 @@ const SignupPage: React.FC = () => {
                 💡 تست: کد <span className="font-mono font-bold">123456</span> را وارد کنید
               </p>
             </div>
-
-            {error && <p className="text-sm text-red-600">{error}</p>}
-
-            <button
-              type="submit"
-              className="w-full px-4 py-2 text-white bg-green-600 rounded-md hover:bg-green-700 disabled:bg-gray-400"
+            {error && <p className="text-sm text-red-600 whitespace-pre-line">{error}</p>}
+            <button 
+              type="submit" 
+              className="w-full px-4 py-2 text-white bg-green-600 rounded-md hover:bg-green-700 disabled:bg-gray-400" 
               disabled={isLoading || otpCode.length !== 6}
             >
-              {isLoading ? 'در حال ثبت نام...' : 'تایید و ثبت نام'}
+              {isLoading ? 'در حال پردازش...' : 'تایید و ثبت نام'}
             </button>
-
             <div className="text-center">
               <button
                 type="button"
@@ -353,14 +288,14 @@ const SignupPage: React.FC = () => {
                 {countdown > 0 ? `ارسال مجدد (${countdown}s)` : 'ارسال مجدد کد'}
               </button>
             </div>
-
-            <div className="text-center">
-              <Link to="/login" className="text-sm text-gray-600 dark:text-gray-400 hover:underline">
-                بازگشت به ورود
-              </Link>
-            </div>
           </form>
         )}
+
+        <div className="text-center">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+                حساب کاربری دارید؟ <Link to="/login" className="font-medium text-blue-600 hover:underline">وارد شوید</Link>
+            </p>
+        </div>
       </div>
     </div>
   );
