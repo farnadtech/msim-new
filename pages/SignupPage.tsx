@@ -131,7 +131,11 @@ const SignupPage: React.FC = () => {
       }
 
       showNotification('ثبت نام شما با موفقیت تکمیل شد', 'success');
-      // Navigation will happen via useEffect
+      
+      // Wait a moment for localStorage to be updated, then navigate
+      setTimeout(() => {
+        navigate(`/${formData.role}`);
+      }, 500);
     } catch (err) {
       console.error('Signup error:', err);
       if (err instanceof Error) {

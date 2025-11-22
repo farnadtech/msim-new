@@ -760,8 +760,8 @@ const SimDetailsPage: React.FC = () => {
                 </div>
             )}
             {isConfirmModalOpen && sim.type === 'fixed' && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md text-center">
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto text-center">
                         <h3 className="text-xl font-bold mb-4">تایید خرید</h3>
                         <p className="mb-2">آیا از خرید سیمکارت به شماره زیر اطمینان دارید؟</p>
                         <p className="font-bold text-2xl tracking-wider mb-4" style={{direction: 'ltr'}}>{sim.number}</p>
@@ -779,8 +779,8 @@ const SimDetailsPage: React.FC = () => {
                 </div>
             )}
             {showAuctionPaymentModal && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md text-center">
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto text-center">
                         <h3 className="text-xl font-bold mb-4">تکمیل خریدحراجی</h3>
                         <p className="mb-4 text-gray-700 dark:text-gray-300">آیا برای تکمیل خرید و پرداخت مبلغ زیر اطمینان دارید؟</p>
                         <div className="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-lg mb-6">

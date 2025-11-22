@@ -42,8 +42,8 @@ const LineDeliveryMethodModal: React.FC<LineDeliveryMethodModalProps> = ({
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white dark:bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-2xl">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-gray-800 p-4 sm:p-8 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
                 <h2 className="text-2xl font-bold mb-2 text-center">انتخاب روش تحویل</h2>
                 <p className="text-gray-600 dark:text-gray-400 text-center mb-6">
                     سیمکارت {simNumber} را چگونه می‌خواهید تحویل بگیرید؟

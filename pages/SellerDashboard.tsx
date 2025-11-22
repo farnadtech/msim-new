@@ -221,8 +221,8 @@ const MySimCards = () => {
                 </table>
             </div>
             {isEditModalOpen && editingSim && (
-                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md">
+                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
                         <h3 className="text-lg font-bold mb-4">ویرایش قیمت سیمکارت</h3>
                         <p className="mb-4 text-lg tracking-wider" style={{direction: 'ltr'}}>{editingSim.number}</p>
                         <div>
@@ -244,8 +244,8 @@ const MySimCards = () => {
                 </div>
             )}
             {isDeleteModalOpen && deletingSim && (
-                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md">
+                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
                         <h3 className="text-lg font-bold mb-4 text-red-600">تایید حذف سیمکارت</h3>
                         <p className="mb-4">آیا مطمئن هستید که می‌خواهید سیمکارت زیر را به طور کامل حذف کنید؟</p>
                         <p className="mb-4 text-xl font-bold tracking-wider" style={{direction: 'ltr'}}>{deletingSim.number}</p>
@@ -419,8 +419,8 @@ const SellerWallet = ({ onTransaction }: { onTransaction: (amount: number, type:
             )) : <p className="text-gray-500">هیچ تراکنشی یافت نشد.</p>}
 
             {isModalOpen && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-sm">
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow-xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
                         <h3 className="text-lg font-bold mb-4">{modalType === 'deposit' ? 'شارژ کیف پول' : 'برداشت از کیف پول'}</h3>
                         <label className="block mb-2">مبلغ (تومان)</label>
                         <input
@@ -883,8 +883,8 @@ const BuyPackage = ({ onBuyPackage }: { onBuyPackage: (pkg: Package) => Promise<
             </div>
 
             {isModalOpen && selectedPackage && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md">
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
                         <h3 className="text-xl font-bold mb-4">تایید خرید پکیج</h3>
                         <p className="mb-2">شما در حال خرید <span className="font-bold">{selectedPackage.name}</span> به قیمت <span className="font-bold">{selectedPackage.price.toLocaleString('fa-IR')} تومان</span> هستید.</p>
                         <p className="mb-6">موجودی فعلی شما: <span className="font-bold">{(user.wallet_balance || 0).toLocaleString('fa-IR')} تومان</span></p>

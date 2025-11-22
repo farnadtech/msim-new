@@ -144,8 +144,8 @@ const ManageUsers = () => {
             </div>
 
             {isModalOpen && editingUser && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md">
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
                         <h3 className="text-lg font-bold mb-4">ویرایش کاربر: {editingUser.name}</h3>
                         <div className="space-y-4">
                             <div>
@@ -247,8 +247,8 @@ const ManageSimCards = () => {
                 </table>
             </div>
             {isModalOpen && editingSim && (
-                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md">
+                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
                         <h3 className="text-lg font-bold mb-4">ویرایش سیمکارت: {editingSim.number}</h3>
                         <div className="space-y-4">
                             <div>
@@ -352,8 +352,8 @@ const ManagePackages = () => {
 
             {/* Buyers Modal */}
              {isBuyersModalOpen && viewingPackage && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md">
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
                         <h3 className="text-lg font-bold mb-4">خریداران پکیج: {viewingPackage.name}</h3>
                         {buyers.length > 0 ? (
                              <ul className="space-y-2 list-disc list-inside">
@@ -371,8 +371,8 @@ const ManagePackages = () => {
             )}
             {/* Edit/Add Modal */}
             {isEditModalOpen && (
-                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-lg">
+                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
                         <h3 className="text-lg font-bold mb-4">{editingPackage ? 'ویرایش پکیج' : 'افزودن پکیج جدید'}</h3>
                         <div className="space-y-4">
                             <div>
