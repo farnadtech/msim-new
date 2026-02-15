@@ -141,13 +141,15 @@ export interface PaymentReceipt {
     user_id: string;
     user_name: string;
     amount: number;
-    card_number: string;
-    tracking_code: string;
-    receipt_image_url: string;
+    card_number?: string;
+    tracking_code?: string;
+    receipt_image_url?: string;
+    payment_method?: 'zarinpal' | 'zibal' | 'card';
     status: 'pending' | 'approved' | 'rejected';
     created_at: string;
     processed_at?: string;
     processed_by?: string;
+    updated_at?: string;
 }
 
 export interface Commission {

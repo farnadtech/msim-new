@@ -15,6 +15,7 @@ const AdminVerificationPanel: React.FC = () => {
     const [rejectFinalReason, setRejectFinalReason] = useState<{[key: number]: string}>({});
     const [showRejectDocForm, setShowRejectDocForm] = useState<{[key: number]: boolean}>({});
     const [showRejectFinalForm, setShowRejectFinalForm] = useState<{[key: number]: boolean}>({});
+    const [buyerInfo, setBuyerInfo] = useState<{[key: string]: {name: string, phone: string}}>({});
     const { showNotification } = useNotification();
 
     useEffect(() => {
@@ -32,6 +33,30 @@ const AdminVerificationPanel: React.FC = () => {
                 o.line_type === 'active' && ['document_submitted', 'verified'].includes(o.status)
             );
             setOrders(pendingOrders);
+            
+            // بارگذاری اطلاعات خریداران
+            const buyerIds = [...new Set(pendingOrders.map((o: PurchaseOrder) => o.buyer_id))];
+            for (const buyerId of buyerIds) {
+                try {
+                    const { data: buyerData } = await supabase
+                        .from('users')
+                        .select('name, phone_number')
+                        .eq('id', buyerId)
+                        .single();
+                    
+                    if (buyerData) {
+                        setBuyerInfo(prev => ({
+                            ...prev,
+                            [buyerId]: {
+                                name: buyerData.name,
+                                phone: buyerData.phone_number || 'ثبت نشده'
+                            }
+                        }));
+                    }
+                } catch (err) {
+                    console.error('Error loading buyer info:', err);
+                }
+            }
             
             // بارگذاری مدارک برای سفارشات document_submitted
             pendingOrders.forEach((order) => {
@@ -285,6 +310,25 @@ const AdminVerificationPanel: React.FC = () => {
                                         <p className="text-sm text-gray-600 dark:text-gray-400">فروشنده دریافت خواهد کرد</p>
                                         <p className="font-bold text-green-600">{order.seller_received_amount.toLocaleString('fa-IR')} تومان</p>
                                     </div>
+                                </div>
+
+                                {/* اطلاعات تماس خریدار */}
+                                <div className="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-lg mb-4">
+                                    <h5 className="font-semibold mb-2 text-blue-800 dark:text-blue-300">📞 اطلاعات تماس خریدار:</h5>
+                                    {buyerInfo[order.buyer_id] ? (
+                                        <div className="space-y-1">
+                                            <p className="text-sm">
+                                                <span className="text-gray-600 dark:text-gray-400">نام: </span>
+                                                <span className="font-bold">{buyerInfo[order.buyer_id].name}</span>
+                                            </p>
+                                            <p className="text-sm">
+                                                <span className="text-gray-600 dark:text-gray-400">شماره تماس: </span>
+                                                <span className="font-bold" style={{ direction: 'ltr' }}>{buyerInfo[order.buyer_id].phone}</span>
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <p className="text-sm text-gray-500">در حال بارگذاری...</p>
+                                    )}
                                 </div>
 
                                 {/* مرحله 1: تایید مدارک */}

@@ -197,3 +197,110 @@ export const clearSettingsCache = (): void => {
     settingsCache = null;
     cacheTimestamp = 0;
 };
+
+// --- Payment Gateway Settings ---
+
+/**
+ * Check if ZarinPal is enabled
+ */
+export const isZarinPalEnabled = async (): Promise<boolean> => {
+    return await getBooleanSetting('zarinpal_enabled', true);
+};
+
+/**
+ * Get ZarinPal merchant ID
+ */
+export const getZarinPalMerchantId = async (): Promise<string> => {
+    return await getSetting('zarinpal_merchant_id', '');
+};
+
+/**
+ * Check if ZarinPal is in sandbox mode
+ */
+export const isZarinPalSandbox = async (): Promise<boolean> => {
+    return await getBooleanSetting('zarinpal_sandbox', true);
+};
+
+/**
+ * Check if Zibal is enabled
+ */
+export const isZibalEnabled = async (): Promise<boolean> => {
+    return await getBooleanSetting('zibal_enabled', true);
+};
+
+/**
+ * Get Zibal merchant ID
+ */
+export const getZibalMerchantId = async (): Promise<string> => {
+    return await getSetting('zibal_merchant_id', 'zibal');
+};
+
+/**
+ * Check if Zibal is in sandbox mode
+ */
+export const isZibalSandbox = async (): Promise<boolean> => {
+    return await getBooleanSetting('zibal_sandbox', true);
+};
+
+/**
+ * Check if card-to-card is enabled
+ */
+export const isCardToCardEnabled = async (): Promise<boolean> => {
+    return await getBooleanSetting('card_to_card_enabled', true);
+};
+
+/**
+ * Get card-to-card number
+ */
+export const getCardToCardNumber = async (): Promise<string> => {
+    return await getSetting('card_to_card_number', '6037-99XX-XXXX-XXXX');
+};
+
+/**
+ * Get card-to-card bank name
+ */
+export const getCardToCardBankName = async (): Promise<string> => {
+    return await getSetting('card_to_card_bank_name', 'بانک ملی ایران');
+};
+
+/**
+ * Get all enabled payment gateways
+ */
+export const getEnabledPaymentGateways = async (): Promise<{
+    zarinpal: boolean;
+    zibal: boolean;
+    cardToCard: boolean;
+}> => {
+    const [zarinpal, zibal, cardToCard] = await Promise.all([
+        isZarinPalEnabled(),
+        isZibalEnabled(),
+        isCardToCardEnabled()
+    ]);
+    
+    return { zarinpal, zibal, cardToCard };
+};
+
+/**
+ * Get payment gateway configuration
+ */
+export const getPaymentGatewayConfig = async (gateway: 'zarinpal' | 'zibal'): Promise<{
+    enabled: boolean;
+    merchantId: string;
+    sandbox: boolean;
+}> => {
+    if (gateway === 'zarinpal') {
+        const [enabled, merchantId, sandbox] = await Promise.all([
+            isZarinPalEnabled(),
+            getZarinPalMerchantId(),
+            isZarinPalSandbox()
+        ]);
+        return { enabled, merchantId, sandbox };
+    } else {
+        const [enabled, merchantId, sandbox] = await Promise.all([
+            isZibalEnabled(),
+            getZibalMerchantId(),
+            isZibalSandbox()
+        ]);
+        return { enabled, merchantId, sandbox };
+    }
+};

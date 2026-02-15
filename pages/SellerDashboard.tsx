@@ -21,7 +21,7 @@ const SellerOverview = () => {
 
     const mySims = simCards.filter(s => s.seller_id === user.id);
     const soldSims = mySims.filter(s => s.status === 'sold');
-    const activeListings = mySims.filter(s => s.status === 'available');
+    const activeListings = mySims.filter(s => s.status === 'available' || s.status === 'reserved');
     const userPackage = packages.find(p => p.id === user.package_id);
 
     return (
@@ -180,8 +180,12 @@ const MySimCards = () => {
                                 <td className="p-3">{ (sim.type === 'inquiry') ? 'توافقی' : (((sim.type === 'auction' ? sim.auction_details?.current_bid : sim.price) || 0).toLocaleString('fa-IR') + ' تومان')}</td>
                                 <td className="p-3">{sim.type === 'fixed' ? 'مقطوع' : sim.type === 'auction' ? 'حراجی' : 'استعلامی'}</td>
                                 <td className="p-3">
-                                    <span className={`px-2 py-1 text-xs rounded-full ${sim.status === 'available' ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-800'}`}>
-                                        {sim.status === 'available' ? 'موجود' : 'فروخته شده'}
+                                    <span className={`px-2 py-1 text-xs rounded-full ${
+                                        sim.status === 'available' ? 'bg-green-200 text-green-800 dark:bg-green-900/30 dark:text-green-300' : 
+                                        sim.status === 'reserved' ? 'bg-yellow-200 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300' : 
+                                        'bg-red-200 text-red-800 dark:bg-red-900/30 dark:text-red-300'
+                                    }`}>
+                                        {sim.status === 'available' ? 'موجود' : sim.status === 'reserved' ? 'رزرو شده' : 'فروخته شده'}
                                     </span>
                                 </td>
                                 <td className="p-3">
@@ -202,16 +206,23 @@ const MySimCards = () => {
                                     )}
                                 </td>
                                 <td className="p-3">
-                                    {sim.status === 'available' && (
+                                    {(sim.status === 'available' || sim.status === 'reserved') && (
                                         <div className="flex gap-2">
-                                            {sim.type !== 'inquiry' && (
+                                            {sim.type !== 'inquiry' && sim.status === 'available' && (
                                                 <button onClick={() => handleEditClick(sim)} className="bg-yellow-500 text-white px-3 py-1 rounded-md hover:bg-yellow-600 text-sm">
                                                     ویرایش
                                                 </button>
                                             )}
-                                            <button onClick={() => handleDeleteClick(sim)} className="bg-red-500 text-white px-3 py-1 rounded-md hover:bg-red-600 text-sm">
-                                                حذف
-                                            </button>
+                                            {sim.status === 'available' && (
+                                                <button onClick={() => handleDeleteClick(sim)} className="bg-red-500 text-white px-3 py-1 rounded-md hover:bg-red-600 text-sm">
+                                                    حذف
+                                                </button>
+                                            )}
+                                            {sim.status === 'reserved' && (
+                                                <span className="text-sm text-yellow-600 dark:text-yellow-400">
+                                                    🔒 در انتظار تحویل به خریدار
+                                                </span>
+                                            )}
                                         </div>
                                     )}
                                 </td>
@@ -286,10 +297,58 @@ const SellerWallet = ({ onTransaction }: { onTransaction: (amount: number, type:
     const [modalType, setModalType] = useState<'deposit' | 'withdrawal'>('deposit');
     const [amount, setAmount] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [paymentMethod, setPaymentMethod] = useState<'zarinpal' | 'card'>('zarinpal');
+    const [paymentMethod, setPaymentMethod] = useState<'zarinpal' | 'zibal' | 'card'>('zarinpal');
     const [cardNumber, setCardNumber] = useState('');
     const [trackingCode, setTrackingCode] = useState('');
     const [receiptImage, setReceiptImage] = useState<File | null>(null);
+    const [enabledGateways, setEnabledGateways] = useState({ zarinpal: false, zibal: false, cardToCard: false });
+    const [cardInfo, setCardInfo] = useState({ number: '6037-99XX-XXXX-XXXX', bank: 'بانک ملی ایران' });
+
+    // بارگذاری تنظیمات درگاه‌های پرداخت
+    React.useEffect(() => {
+        const loadPaymentGateways = async () => {
+            try {
+                const { data: settings } = await api.supabase
+                    .from('site_settings')
+                    .select('setting_key, setting_value')
+                    .in('setting_key', [
+                        'zarinpal_enabled', 
+                        'zibal_enabled', 
+                        'card_to_card_enabled',
+                        'card_to_card_number',
+                        'card_to_card_bank_name'
+                    ]);
+                
+                if (settings) {
+                    const gateways = {
+                        zarinpal: settings.find(s => s.setting_key === 'zarinpal_enabled')?.setting_value === 'true',
+                        zibal: settings.find(s => s.setting_key === 'zibal_enabled')?.setting_value === 'true',
+                        cardToCard: settings.find(s => s.setting_key === 'card_to_card_enabled')?.setting_value === 'true'
+                    };
+                    setEnabledGateways(gateways);
+                    
+                    // تنظیم اولین درگاه فعال به عنوان پیش‌فرض
+                    if (gateways.zarinpal) setPaymentMethod('zarinpal');
+                    else if (gateways.zibal) setPaymentMethod('zibal');
+                    else if (gateways.cardToCard) setPaymentMethod('card');
+                    
+                    // دریافت اطلاعات کارت
+                    const cardNum = settings.find(s => s.setting_key === 'card_to_card_number')?.setting_value;
+                    const bankName = settings.find(s => s.setting_key === 'card_to_card_bank_name')?.setting_value;
+                    if (cardNum || bankName) {
+                        setCardInfo({
+                            number: cardNum || '6037-99XX-XXXX-XXXX',
+                            bank: bankName || 'بانک ملی ایران'
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading payment gateways:', error);
+            }
+        };
+        
+        loadPaymentGateways();
+    }, []);
 
     if (!user) return null;
     const myTransactions = transactions.filter(t => t.user_id === user.id).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -298,7 +357,10 @@ const SellerWallet = ({ onTransaction }: { onTransaction: (amount: number, type:
         setModalType(type);
         setModalOpen(true);
         setAmount('');
-        setPaymentMethod('zarinpal');
+        // تنظیم اولین درگاه فعال به عنوان پیش‌فرض
+        if (enabledGateways.zarinpal) setPaymentMethod('zarinpal');
+        else if (enabledGateways.zibal) setPaymentMethod('zibal');
+        else if (enabledGateways.cardToCard) setPaymentMethod('card');
         setCardNumber('');
         setTrackingCode('');
         setReceiptImage(null);
@@ -365,6 +427,22 @@ const SellerWallet = ({ onTransaction }: { onTransaction: (amount: number, type:
                         setCardNumber('');
                         setTrackingCode('');
                         setReceiptImage(null);
+                    } else if (paymentMethod === 'zibal') {
+                        // For Zibal, redirect to payment gateway
+                        try {
+                            const { paymentUrl } = await api.createZibalPayment(
+                                user!.id,
+                                user!.name,
+                                numericAmount
+                            );
+                            
+                            // Redirect to Zibal payment page
+                            window.location.href = paymentUrl;
+                        } catch (error) {
+                            showNotification('خطا در ایجاد پرداخت زیبال.', 'error');
+                            setIsLoading(false);
+                            return;
+                        }
                     } else {
                         // For ZarinPal, redirect to payment gateway
                         try {
@@ -436,37 +514,57 @@ const SellerWallet = ({ onTransaction }: { onTransaction: (amount: number, type:
                             <>
                                 <div className="mt-4">
                                     <label className="block mb-2 font-medium">روش پرداخت</label>
-                                    <div className="flex items-center space-x-4 space-x-reverse mb-4">
-                                        <label className="flex items-center">
-                                            <input 
-                                                type="radio" 
-                                                name="paymentMethod" 
-                                                value="zarinpal" 
-                                                checked={paymentMethod === 'zarinpal'}
-                                                onChange={() => setPaymentMethod('zarinpal')}
-                                                className="ml-2"
-                                            />
-                                            <span>زرین‌پال</span>
-                                        </label>
-                                        <label className="flex items-center">
-                                            <input 
-                                                type="radio" 
-                                                name="paymentMethod" 
-                                                value="card" 
-                                                checked={paymentMethod === 'card'}
-                                                onChange={() => setPaymentMethod('card')}
-                                                className="ml-2"
-                                            />
-                                            <span>کارت به کارت</span>
-                                        </label>
+                                    <div className="grid grid-cols-3 gap-2 mb-4">
+                                        {enabledGateways.zarinpal && (
+                                            <label className="flex items-center justify-center border-2 rounded-lg p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+                                                style={{ borderColor: paymentMethod === 'zarinpal' ? '#3b82f6' : 'transparent' }}>
+                                                <input 
+                                                    type="radio" 
+                                                    name="paymentMethod" 
+                                                    value="zarinpal" 
+                                                    checked={paymentMethod === 'zarinpal'}
+                                                    onChange={() => setPaymentMethod('zarinpal')}
+                                                    className="ml-2"
+                                                />
+                                                <span>زرین‌پال</span>
+                                            </label>
+                                        )}
+                                        {enabledGateways.zibal && (
+                                            <label className="flex items-center justify-center border-2 rounded-lg p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+                                                style={{ borderColor: paymentMethod === 'zibal' ? '#3b82f6' : 'transparent' }}>
+                                                <input 
+                                                    type="radio" 
+                                                    name="paymentMethod" 
+                                                    value="zibal" 
+                                                    checked={paymentMethod === 'zibal'}
+                                                    onChange={() => setPaymentMethod('zibal')}
+                                                    className="ml-2"
+                                                />
+                                                <span>زیبال</span>
+                                            </label>
+                                        )}
+                                        {enabledGateways.cardToCard && (
+                                            <label className="flex items-center justify-center border-2 rounded-lg p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+                                                style={{ borderColor: paymentMethod === 'card' ? '#3b82f6' : 'transparent' }}>
+                                                <input 
+                                                    type="radio" 
+                                                    name="paymentMethod" 
+                                                    value="card" 
+                                                    checked={paymentMethod === 'card'}
+                                                    onChange={() => setPaymentMethod('card')}
+                                                    className="ml-2"
+                                                />
+                                                <span>کارت به کارت</span>
+                                            </label>
+                                        )}
                                     </div>
                                     
                                     {paymentMethod === 'card' && (
                                         <div className="bg-blue-50 dark:bg-blue-900/50 p-4 rounded-lg mb-4">
                                             <h4 className="font-bold mb-2">اطلاعات پرداخت کارت به کارت</h4>
                                             <p className="mb-2">لطفاً مبلغ را به شماره کارت زیر واریز کنید:</p>
-                                            <p className="font-bold text-lg mb-2">6037-99XX-XXXX-XXXX</p>
-                                            <p className="mb-4">(بانک ملی ایران)</p>
+                                            <p className="font-bold text-lg mb-2">{cardInfo.number}</p>
+                                            <p className="mb-4">({cardInfo.bank})</p>
                                             
                                             <div className="space-y-3">
                                                 <div>
@@ -1052,6 +1150,7 @@ const SellerDashboard: React.FC = () => {
                 </div>
                 
                 <NavItem to="secure-payments">🔒 پرداخت امن</NavItem>
+                <NavItem to="/invoices">📄 فاکتورهای من</NavItem>
                 <NavItem to="/notifications">🔔 اعلانات</NavItem>
             </nav>
         </div>

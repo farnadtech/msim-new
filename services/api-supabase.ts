@@ -558,6 +558,13 @@ export const getSimCards = async (): Promise<SimCard[]> => {
 };
 
 export const addSimCard = async (simData: Omit<SimCard, 'id'>): Promise<string> => {
+    // Get listing expiry days from settings
+    const expiryDays = await settingsService.getListingAutoDeleteDays();
+    
+    // Calculate expiry date
+    const expiryDate = new Date();
+    expiryDate.setDate(expiryDate.getDate() + expiryDays);
+    
     // Prepare sim card data without ID (let DB auto-generate)
     const simCardPayload: any = {
         number: simData.number,
@@ -569,7 +576,9 @@ export const addSimCard = async (simData: Omit<SimCard, 'id'>): Promise<string> 
         carrier: simData.carrier,
         is_rond: simData.is_rond,
         is_active: simData.is_active,
-        inquiry_phone_number: simData.inquiry_phone_number
+        inquiry_phone_number: simData.inquiry_phone_number,
+        created_at: new Date().toISOString(),
+        expiry_date: expiryDate.toISOString()
     };
     
     // Add rond_level if this is a rond sim card
@@ -987,18 +996,47 @@ export const purchaseSim = async (simId: number, buyerId: string): Promise<void>
     
     console.log('✅ Purchase order created:', purchaseOrderId);
     
+    // Create activation request for inactive lines
+    if (lineType === 'inactive') {
+        console.log('📝 Creating activation request for inactive line...');
+        
+        // Fetch buyer and seller names
+        const { data: buyerUserData } = await supabase
+            .from('users')
+            .select('name')
+            .eq('id', buyerId)
+            .single();
+        
+        const { data: sellerUserData } = await supabase
+            .from('users')
+            .select('name')
+            .eq('id', simData.seller_id)
+            .single();
+        
+        await createActivationRequest(
+            purchaseOrderId,
+            simId,
+            buyerId,
+            simData.seller_id,
+            simData.number,
+            buyerUserData?.name || 'خریدار',
+            sellerUserData?.name || 'فروشنده'
+        );
+        console.log('✅ Activation request created');
+    }
+    
     // Send notifications
     await createNotification(
         buyerId,
         '📦 سفارش خرید ایجاد شد',
-        `سیمکارت ${simData.number} با موفقیت سفارش داده شد. لطفاً برای ارسال کد فعالسازی انتظار کنید تا فروشنده تایید ملی، سپس با اطلاع ميگردیم.`,
+        `سیمکارت ${simData.number} با موفقیت سفارش داده شد. لطفاً برای ارسال کد فعالسازی انتظار کنید تا فروشنده تایید کند.`,
         'info'
     );
     
     await createNotification(
         simData.seller_id,
-        '🛒 سفارش جدید از خریدار - برای سیمکارت ${simData.number}',
-        `سیمکارت ${simData.number} توسط خریداری سفارش داده شد. لطفاً برای تایید هویت ابکنته را بررسی کنید.`,
+        '🛒 سفارش جدید از خریدار',
+        `سیمکارت ${simData.number} توسط خریداری سفارش داده شد. لطفاً کد فعال‌سازی را ارسال کنید.`,
         'info'
     );
 };
@@ -1311,6 +1349,7 @@ export type PaymentReceipt = {
   card_number?: string;
   tracking_code?: string;
   receipt_image_url?: string;
+  payment_method?: string; // 'card', 'zarinpal', 'zibal'
   status: PaymentReceiptStatus;
   created_at: string;
   processed_at?: string;
@@ -1320,7 +1359,7 @@ export type PaymentReceipt = {
 
 // Payment receipt functions
 export const createPaymentReceipt = async (
-  receiptData: Omit<PaymentReceipt, 'id' | 'created_at' | 'updated_at'>
+  receiptData: Omit<PaymentReceipt, 'id' | 'created_at' | 'updated_at' | 'processed_at' | 'processed_by'>
 ): Promise<string> => {
   const { data, error } = await supabase
     .from('payment_receipts')
@@ -1559,6 +1598,213 @@ export const verifyZarinPalPayment = async (
   } catch (error) {
     console.error('Error in verifyZarinPalPayment:', error);
     throw new Error('خطا در تأیید پرداخت زرین‌پال');
+  }
+};
+
+// --- Zibal Payment Gateway ---
+
+export const createZibalPayment = async (
+  userId: string,
+  userName: string,
+  amount: number
+): Promise<{ paymentUrl: string; trackId: number }> => {
+  try {
+    const { createZibalPayment: zibalRequest } = await import('./zibal-service');
+    
+    // Create a payment receipt first
+    const receiptId = await createPaymentReceipt({
+      user_id: userId,
+      user_name: userName,
+      amount: amount,
+      status: 'pending',
+      payment_method: 'zibal'
+    });
+
+    // تبدیل تومان به ریال (زیبال مبلغ را به ریال می‌خواهد)
+    const amountInRials = amount * 10;
+
+    // Create payment request in Zibal
+    const orderId = `MSIM_${receiptId}_${Date.now()}`;
+    const result = await zibalRequest({
+      amount: amountInRials,
+      orderId: orderId,
+      description: `شارژ کیف پول کاربر ${userName}`,
+      mobile: undefined // می‌توانید شماره موبایل کاربر را اضافه کنید
+    });
+
+    if (result.result !== 100 || !result.trackId || !result.paymentUrl) {
+      throw new Error(result.message || 'خطا در ایجاد درخواست پرداخت');
+    }
+
+    // Update the receipt with the trackId
+    const { error: updateError } = await supabase
+      .from('payment_receipts')
+      .update({ 
+        tracking_code: result.trackId.toString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', receiptId);
+
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+
+    return { 
+      paymentUrl: result.paymentUrl, 
+      trackId: result.trackId 
+    };
+  } catch (error) {
+    console.error('Error in createZibalPayment:', error);
+    throw new Error(error instanceof Error ? error.message : 'خطا در ایجاد پرداخت زیبال');
+  }
+};
+
+export const verifyZibalPayment = async (
+  trackId: number,
+  success: number,
+  status: number
+): Promise<{ success: boolean; refNumber?: number; cardNumber?: string; amount?: number }> => {
+  try {
+    console.log('🔍 Starting payment verification:', { trackId, success, status });
+
+    // بررسی اولیه - آیا پرداخت موفق بوده؟
+    if (success !== 1 || status !== 2) {
+      console.log('❌ Payment not successful based on callback params');
+      // پرداخت ناموفق - آپدیت وضعیت
+      await supabase
+        .from('payment_receipts')
+        .update({ 
+          status: 'rejected',
+          processed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('tracking_code', trackId.toString());
+
+      return { success: false };
+    }
+
+    // بررسی اینکه آیا قبلاً پردازش شده یا نه
+    const { data: existingReceipt, error: checkError } = await supabase
+      .from('payment_receipts')
+      .select('status, user_id, amount')
+      .eq('tracking_code', trackId.toString())
+      .single();
+
+    if (checkError) {
+      console.error('❌ Error checking receipt:', checkError);
+      throw new Error('رسید پرداخت یافت نشد');
+    }
+
+    // اگر قبلاً approved شده، فقط اطلاعات را برگردان
+    if (existingReceipt.status === 'approved') {
+      console.log('✅ Payment already verified and processed');
+      return { 
+        success: true,
+        amount: existingReceipt.amount * 10 // تبدیل تومان به ریال برای نمایش
+      };
+    }
+
+    // تایید پرداخت با سرور زیبال
+    const { verifyZibalPayment: zibalVerify } = await import('./zibal-service');
+    const verifyResult = await zibalVerify({ trackId });
+
+    console.log('📥 Zibal verify result:', verifyResult);
+
+    // بررسی نتیجه: 100 = موفق، 201 = قبلاً تایید شده
+    if (verifyResult.result !== 100 && verifyResult.result !== 201) {
+      console.log('❌ Zibal verification failed:', verifyResult);
+      // تایید ناموفق
+      await supabase
+        .from('payment_receipts')
+        .update({ 
+          status: 'rejected',
+          processed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('tracking_code', trackId.toString());
+
+      throw new Error(verifyResult.message || 'خطا در تایید پرداخت');
+    }
+
+    // اگر result=201 (قبلاً تایید شده) و status در دیتابیس approved است
+    if (verifyResult.result === 201 && existingReceipt.status === 'approved') {
+      console.log('✅ Payment was already verified (201)');
+      return { 
+        success: true,
+        refNumber: verifyResult.refNumber,
+        cardNumber: verifyResult.cardNumber,
+        amount: verifyResult.amount
+      };
+    }
+
+    // پرداخت موفق - آپدیت رسید
+    const { error: updateError } = await supabase
+      .from('payment_receipts')
+      .update({ 
+        status: 'approved',
+        processed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('tracking_code', trackId.toString());
+
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+
+    // آپدیت موجودی کاربر
+    const { data: userData, error: userFetchError } = await supabase
+      .from('users')
+      .select('wallet_balance')
+      .eq('id', existingReceipt.user_id)
+      .single();
+
+    if (userFetchError) {
+      throw new Error(userFetchError.message);
+    }
+
+    const newBalance = (userData.wallet_balance || 0) + existingReceipt.amount;
+
+    const { error: userUpdateError } = await supabase
+      .from('users')
+      .update({ wallet_balance: newBalance })
+      .eq('id', existingReceipt.user_id);
+
+    if (userUpdateError) {
+      throw new Error(userUpdateError.message);
+    }
+
+    console.log('✅ Wallet updated:', { oldBalance: userData.wallet_balance, newBalance });
+
+    // ثبت تراکنش
+    await supabase
+      .from('transactions')
+      .insert({
+        user_id: existingReceipt.user_id,
+        type: 'deposit',
+        amount: existingReceipt.amount,
+        description: `شارژ کیف پول از طریق زیبال - شماره پیگیری: ${verifyResult.refNumber || trackId}`,
+        date: new Date().toISOString()
+      });
+
+    // ارسال نوتیفیکیشن به کاربر
+    await createNotification(
+      existingReceipt.user_id,
+      '✅ پرداخت موفق',
+      `مبلغ ${existingReceipt.amount.toLocaleString('fa-IR')} تومان با موفقیت به کیف پول شما اضافه شد.`,
+      'success'
+    );
+
+    console.log('✅ Payment verification completed successfully');
+
+    return { 
+      success: true, 
+      refNumber: verifyResult.refNumber,
+      cardNumber: verifyResult.cardNumber,
+      amount: verifyResult.amount
+    };
+  } catch (error) {
+    console.error('❌ Error in verifyZibalPayment:', error);
+    throw new Error(error instanceof Error ? error.message : 'خطا در تأیید پرداخت زیبال');
   }
 };
 
@@ -1939,32 +2185,43 @@ export const completeAuctionPurchase = async (simId: number): Promise<void> => {
 
 export const processEndedAuctions = async (): Promise<void> => {
   try {
-    // Get all ended auctions that haven't been processed yet
-    const { data: endedAuctions, error: auctionsError } = await supabase
+    // Get all active auctions (without auction_details to avoid query error)
+    const { data: activeAuctions, error: auctionsError } = await supabase
       .from('sim_cards')
-      .select('id')
+      .select('id, type, status')
       .eq('type', 'auction')
-      .eq('status', 'available')
-      .lt('auction_details.end_time', new Date().toISOString());
+      .eq('status', 'available');
       
     if (auctionsError) {
-      throw new Error('Error fetching ended auctions: ' + auctionsError.message);
+      throw new Error('Error fetching active auctions: ' + auctionsError.message);
     }
     
-    // Process each ended auction
-    for (const auction of endedAuctions || []) {
+    // We'll check auction details individually for each auction
+    // We'll check auction details individually for each auction
+    const now = new Date().toISOString();
+    
+    // Process each auction
+    for (const auction of activeAuctions || []) {
       try {
-        // Check if auction has already been processed by looking for a transaction
-        // First, get the SIM card to get its number
+        // First, get the SIM card details including auction_details
         const { data: simData, error: simError } = await supabase
           .from('sim_cards')
-          .select('number, auction_details(highest_bidder_id)')
+          .select('number, auction_end_time, auction_current_bid, auction_highest_bidder_id')
           .eq('id', auction.id)
           .single();
           
         if (simError || !simData) {
           console.error(`Error fetching SIM card ${auction.id}:`, simError);
           continue;
+        }
+        
+        // Check if auction has ended
+        if (!simData.auction_end_time) {
+          continue; // Skip if no auction end time
+        }
+        
+        if (simData.auction_end_time >= now) {
+          continue; // Skip if auction hasn't ended yet
         }
         
         // Check if there's already a purchase transaction for this SIM card
@@ -1986,12 +2243,7 @@ export const processEndedAuctions = async (): Promise<void> => {
         }
         
         // If there's no highest bidder, skip this auction
-        // Note: auction_details is returned as an array, so we need to access the first element
-        const auctionDetails = Array.isArray(simData.auction_details) 
-          ? simData.auction_details[0] 
-          : simData.auction_details;
-          
-        if (!auctionDetails || !auctionDetails.highest_bidder_id) {
+        if (!auctionDetails.highest_bidder_id) {
           console.log(`Auction ${auction.id} has no highest bidder, skipping...`);
           continue;
         }
@@ -2009,15 +2261,19 @@ export const processEndedAuctions = async (): Promise<void> => {
 };
 
 export const getCommissions = async (): Promise<Commission[]> => {
+    console.log('📊 Fetching commissions...');
+    
     const { data, error } = await supabase
         .from('commissions')
         .select('*')
         .order('created_at', { ascending: false });
         
     if (error) {
+        console.error('❌ Error fetching commissions:', error);
         throw new Error(error.message);
     }
     
+    console.log('✅ Commissions fetched:', data?.length || 0);
     return data || [];
 };
 
@@ -3154,6 +3410,8 @@ export const sendActivationCode = async (
 };
 
 export const getActivationCode = async (purchaseOrderId: number): Promise<string | null> => {
+    console.log('🔍 Getting activation code for order:', purchaseOrderId);
+    
     // For inactive lines, the activation code is stored in activation_requests table
     const { data, error } = await supabase
         .from('activation_requests')
@@ -3161,7 +3419,17 @@ export const getActivationCode = async (purchaseOrderId: number): Promise<string
         .eq('purchase_order_id', purchaseOrderId)
         .single();
     
-    if (error || !data) return null;
+    if (error) {
+        console.error('❌ Error getting activation code:', error);
+        return null;
+    }
+    
+    if (!data) {
+        console.log('⚠️ No activation code found for order:', purchaseOrderId);
+        return null;
+    }
+    
+    console.log('✅ Activation code found:', data.activation_code ? '***' : 'empty');
     return data.activation_code;
 };
 
@@ -3282,6 +3550,46 @@ export const verifyActivationCode = async (
         date: new Date().toISOString()
     });
     
+    // ثبت کمیسیون در جدول commissions
+    const { data: simData } = await supabase
+        .from('sim_cards')
+        .select('number, type')
+        .eq('id', orderData.sim_card_id)
+        .single();
+    
+    const { data: sellerUser } = await supabase
+        .from('users')
+        .select('email')
+        .eq('id', orderData.seller_id)
+        .single();
+    
+    const { data: buyerUser } = await supabase
+        .from('users')
+        .select('email')
+        .eq('id', orderData.buyer_id)
+        .single();
+    
+    await supabase
+        .from('commissions')
+        .insert({
+            purchase_order_id: purchaseOrderId,
+            sim_card_id: orderData.sim_card_id,
+            seller_id: orderData.seller_id,
+            seller_name: sellerUser?.email || 'نامشخص',
+            sim_number: simData?.number || '',
+            sale_price: orderData.price,
+            commission_amount: orderData.commission_amount,
+            commission_percentage: 2,
+            seller_received_amount: orderData.seller_received_amount,
+            sale_type: simData?.type || 'fixed',
+            buyer_id: orderData.buyer_id,
+            buyer_name: buyerUser?.email || 'نامشخص',
+            date: new Date().toISOString(),
+            created_at: new Date().toISOString()
+        });
+    
+    console.log('✅ Commission record created for order:', purchaseOrderId);
+    
     // Update purchase order status to completed
     await supabase
         .from('purchase_orders')
@@ -3383,6 +3691,31 @@ export const submitSellerDocument = async (
         .eq('id', purchaseOrderId);
     
     console.log('✅ Purchase order status updated');
+    
+    // Get seller ID from purchase order
+    const { data: orderData } = await supabase
+        .from('purchase_orders')
+        .select('seller_id')
+        .eq('id', purchaseOrderId)
+        .single();
+    
+    if (orderData) {
+        // Send notification to seller
+        await createNotification(
+            orderData.seller_id,
+            '📄 مدارک شما با موفقیت ارسال شد',
+            'مدارک شما با موفقیت ارسال شد. کارشناسان ما با همین خطی که در حال معامله است با شما تماس خواهند گرفت.',
+            'success'
+        );
+        
+        // Send notification to admins
+        await createNotificationForAdmins(
+            '📄 مدرک جدید برای تایید',
+            `فروشنده مدارک سفارش #${purchaseOrderId} را ارسال کرده است و منتظر تایید است.`,
+            'info'
+        );
+    }
+    
     return data[0].id;
 };
 
@@ -3500,7 +3833,51 @@ export const sendSupportMessage = async (
     message: string,
     messageType: 'problem_report' | 'response' = 'problem_report'
 ): Promise<number> => {
-    console.log('💬 Sending support message:', { purchaseOrderId, senderId });
+    console.log('💬 Sending support message:', { purchaseOrderId, senderId, messageType });
+    
+    // اگر این یک گزارش مشکل است، ابتدا بررسی کنیم که آیا برای خط صفر است
+    if (messageType === 'problem_report') {
+        const { data: orderData, error: orderError } = await supabase
+            .from('purchase_orders')
+            .select('line_type, status')
+            .eq('id', purchaseOrderId)
+            .single();
+        
+        if (!orderError && orderData && orderData.line_type === 'inactive' && orderData.status === 'code_sent') {
+            console.log('🔄 Resetting activation code for zero line...');
+            
+            // پاک کردن کد فعال‌سازی قبلی
+            const { error: resetError } = await supabase
+                .from('activation_requests')
+                .update({
+                    activation_code: null,
+                    status: 'pending',
+                    sent_at: null
+                })
+                .eq('purchase_order_id', purchaseOrderId);
+            
+            if (resetError) {
+                console.error('❌ Error resetting activation code:', resetError);
+            } else {
+                console.log('✅ Activation code reset successfully');
+            }
+            
+            // برگرداندن وضعیت سفارش به pending
+            const { error: statusError } = await supabase
+                .from('purchase_orders')
+                .update({
+                    status: 'pending',
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', purchaseOrderId);
+            
+            if (statusError) {
+                console.error('❌ Error updating order status:', statusError);
+            } else {
+                console.log('✅ Order status reset to pending');
+            }
+        }
+    }
     
     const { data, error } = await supabase
         .from('support_messages')
@@ -3525,7 +3902,7 @@ export const sendSupportMessage = async (
     
     if (messageType === 'problem_report') {
         notificationTitle = '📩 گزارش مشکل جدید';
-        notificationMessage = 'خریدار گزارش مشکلی ارسال کرده است';
+        notificationMessage = 'خریدار گزارش مشکلی ارسال کرده است. لطفاً کد فعال‌سازی جدید ارسال کنید.';
     } else {
         // پیام ادمین - بررسی محتوای پیام برای تعیین نوع
         if (message.includes('رد شده')) {
@@ -3669,6 +4046,51 @@ export const approvePurchase = async (
         throw new Error(sellerTxError.message);
     }
     
+    // ثبت کمیسیون در جدول commissions
+    const { data: simData } = await supabase
+        .from('sim_cards')
+        .select('number, type')
+        .eq('id', orderData.sim_card_id)
+        .single();
+    
+    const { data: sellerUser } = await supabase
+        .from('users')
+        .select('email')
+        .eq('id', orderData.seller_id)
+        .single();
+    
+    const { data: buyerUser } = await supabase
+        .from('users')
+        .select('email')
+        .eq('id', orderData.buyer_id)
+        .single();
+    
+    const { error: commissionError } = await supabase
+        .from('commissions')
+        .insert({
+            purchase_order_id: purchaseOrderId,
+            sim_card_id: orderData.sim_card_id,
+            seller_id: orderData.seller_id,
+            seller_name: sellerUser?.email || 'نامشخص',
+            sim_number: simData?.number || '',
+            sale_price: orderData.price,
+            commission_amount: orderData.commission_amount,
+            commission_percentage: 2,
+            seller_received_amount: orderData.seller_received_amount,
+            sale_type: simData?.type || 'fixed',
+            buyer_id: orderData.buyer_id,
+            buyer_name: buyerUser?.email || 'نامشخص',
+            date: new Date().toISOString(),
+            created_at: new Date().toISOString()
+        });
+    
+    if (commissionError) {
+        console.error('❌ Error creating commission record:', commissionError);
+        // Don't throw error, just log it
+    } else {
+        console.log('✅ Commission record created');
+    }
+    
     // Create admin verification record
     const { error: verificationError } = await supabase
         .from('admin_verifications')
@@ -3700,7 +4122,7 @@ export const approvePurchase = async (
 };
 
 export const getPurchaseOrders = async (userId: string, userRole: string): Promise<any[]> => {
-    console.log('Fetching purchase orders:', { userId, userRole });
+    console.log('🔍 Fetching purchase orders:', { userId, userRole });
     
     let query = supabase
         .from('purchase_orders')
@@ -3711,27 +4133,32 @@ export const getPurchaseOrders = async (userId: string, userRole: string): Promi
     
     if (userRole === 'admin') {
         // Admins can see all orders
-        console.log('Admin view - fetching all orders');
+        console.log('👑 Admin view - fetching all orders');
     } else {
         // Buyers and sellers see only their orders
-        console.log('User view - fetching user orders');
+        console.log('👤 User view - fetching user orders for:', userId);
         query = query.or(`buyer_id.eq.${userId},seller_id.eq.${userId}`);
     }
     
-    const { data, error } = await query;
+    const { data, error } = await query.order('created_at', { ascending: false });
     
     if (error) {
-        console.error('Error fetching purchase orders:', error);
+        console.error('❌ Error fetching purchase orders:', error);
         return [];
     }
     
-    console.log('Purchase orders fetched:', data?.length || 0);
+    console.log('📦 Purchase orders fetched:', data?.length || 0);
+    if (data && data.length > 0) {
+        console.log('📋 Sample order:', data[0]);
+    }
     
     // Transform data to include sim_number
     const transformedData = (data || []).map((order: any) => ({
         ...order,
         sim_number: order.sim_cards?.number || order.sim_card_id
     }));
+    
+    console.log('✅ Transformed data:', transformedData.length, 'orders');
     
     return transformedData;
 };
@@ -4170,7 +4597,7 @@ const deleteSimCard = async (simId: number): Promise<void> => {
     // Get SIM card details
     const { data: simData, error: simError } = await supabase
         .from('sim_cards')
-        .select('*, auction_details(*)')
+        .select('*')
         .eq('id', simId)
         .single();
     
@@ -4258,6 +4685,8 @@ const api = {
     getAllPaymentReceipts,
     createZarinPalPayment,
     verifyZarinPalPayment,
+    createZibalPayment,
+    verifyZibalPayment,
     uploadReceiptImage,
     uploadSellerDocument,
     getSellerDocument,
@@ -4329,6 +4758,7 @@ const api = {
     },
     completeSecurePaymentAfterDelivery,
     deleteSimCard,
+    supabase, // اضافه کردن supabase برای دسترسی مستقیم
 };
 
 export default api;

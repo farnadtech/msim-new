@@ -1,5 +1,4 @@
-import React from 'react';
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, Route, Routes, Link, useNavigate } from 'react-router-dom';
 import DashboardLayout from '../components/DashboardLayout';
 import SecurePaymentsDisplay from '../components/SecurePaymentsDisplay';
@@ -13,11 +12,29 @@ import api from '../services/api-supabase';
 
 const BuyerOverview = () => {
     const { user } = useAuth();
-    const { simCards, transactions } = useData();
+    const { simCards } = useData();
+    const [purchasedCount, setPurchasedCount] = React.useState(0);
+    const [loading, setLoading] = React.useState(true);
+    
+    React.useEffect(() => {
+        if (user) {
+            loadPurchases();
+        }
+    }, [user]);
+    
+    const loadPurchases = async () => {
+        if (!user) return;
+        try {
+            const orders = await api.getPurchaseOrders(user.id, 'buyer');
+            setPurchasedCount(orders.length);
+        } catch (error) {
+            console.error('Error loading purchases:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+    
     if (!user) return null;
-
-    const purchaseTransactions = transactions.filter(t => t.user_id === user.id && t.type === 'purchase' && t.description.startsWith('خرید سیمکارت'));
-    const purchasedSimCount = purchaseTransactions.length;
     
     const myBids = simCards.filter(s => s.type === 'auction' && s.auction_details?.highest_bidder_id === user.id && s.status === 'available');
 
@@ -28,7 +45,9 @@ const BuyerOverview = () => {
                 <h2 className="text-2xl font-bold mb-4">داشبورد خریدار</h2>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="bg-blue-100 dark:bg-blue-900 p-4 rounded-lg text-center">
-                        <p className="text-3xl font-bold text-blue-800 dark:text-blue-300">{purchasedSimCount}</p>
+                        <p className="text-3xl font-bold text-blue-800 dark:text-blue-300">
+                            {loading ? '...' : purchasedCount}
+                        </p>
                         <p className="text-blue-700 dark:text-blue-400">سیمکارت های خریداری شده</p>
                     </div>
                     <div className="bg-green-100 dark:bg-green-900 p-4 rounded-lg text-center">
@@ -174,10 +193,58 @@ const BuyerWallet = ({ onTransaction }: { onTransaction: (amount: number, type: 
     const [modalType, setModalType] = useState<'deposit' | 'withdrawal'>('deposit');
     const [amount, setAmount] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [paymentMethod, setPaymentMethod] = useState<'zarinpal' | 'card'>('zarinpal');
+    const [paymentMethod, setPaymentMethod] = useState<'zarinpal' | 'zibal' | 'card'>('zarinpal');
     const [cardNumber, setCardNumber] = useState('');
     const [trackingCode, setTrackingCode] = useState('');
     const [receiptImage, setReceiptImage] = useState<File | null>(null);
+    const [enabledGateways, setEnabledGateways] = useState({ zarinpal: false, zibal: false, cardToCard: false });
+    const [cardInfo, setCardInfo] = useState({ number: '6037-99XX-XXXX-XXXX', bank: 'بانک ملی ایران' });
+
+    // بارگذاری تنظیمات درگاه‌های پرداخت
+    React.useEffect(() => {
+        const loadPaymentGateways = async () => {
+            try {
+                const { data: settings } = await api.supabase
+                    .from('site_settings')
+                    .select('setting_key, setting_value')
+                    .in('setting_key', [
+                        'zarinpal_enabled', 
+                        'zibal_enabled', 
+                        'card_to_card_enabled',
+                        'card_to_card_number',
+                        'card_to_card_bank_name'
+                    ]);
+                
+                if (settings) {
+                    const gateways = {
+                        zarinpal: settings.find(s => s.setting_key === 'zarinpal_enabled')?.setting_value === 'true',
+                        zibal: settings.find(s => s.setting_key === 'zibal_enabled')?.setting_value === 'true',
+                        cardToCard: settings.find(s => s.setting_key === 'card_to_card_enabled')?.setting_value === 'true'
+                    };
+                    setEnabledGateways(gateways);
+                    
+                    // تنظیم اولین درگاه فعال به عنوان پیش‌فرض
+                    if (gateways.zarinpal) setPaymentMethod('zarinpal');
+                    else if (gateways.zibal) setPaymentMethod('zibal');
+                    else if (gateways.cardToCard) setPaymentMethod('card');
+                    
+                    // دریافت اطلاعات کارت
+                    const cardNum = settings.find(s => s.setting_key === 'card_to_card_number')?.setting_value;
+                    const bankName = settings.find(s => s.setting_key === 'card_to_card_bank_name')?.setting_value;
+                    if (cardNum || bankName) {
+                        setCardInfo({
+                            number: cardNum || '6037-99XX-XXXX-XXXX',
+                            bank: bankName || 'بانک ملی ایران'
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading payment gateways:', error);
+            }
+        };
+        
+        loadPaymentGateways();
+    }, []);
 
     if (!user) return null;
     const myTransactions = transactions.filter(t => t.user_id === user.id).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -200,7 +267,10 @@ const BuyerWallet = ({ onTransaction }: { onTransaction: (amount: number, type: 
         setModalType(type);
         setModalOpen(true);
         setAmount('');
-        setPaymentMethod('zarinpal');
+        // تنظیم اولین درگاه فعال به عنوان پیش‌فرض
+        if (enabledGateways.zarinpal) setPaymentMethod('zarinpal');
+        else if (enabledGateways.zibal) setPaymentMethod('zibal');
+        else if (enabledGateways.cardToCard) setPaymentMethod('card');
         setCardNumber('');
         setTrackingCode('');
         setReceiptImage(null);
@@ -267,6 +337,22 @@ const BuyerWallet = ({ onTransaction }: { onTransaction: (amount: number, type: 
                         setCardNumber('');
                         setTrackingCode('');
                         setReceiptImage(null);
+                    } else if (paymentMethod === 'zibal') {
+                        // For Zibal, redirect to payment gateway
+                        try {
+                            const { paymentUrl } = await api.createZibalPayment(
+                                user!.id,
+                                user!.name,
+                                numericAmount
+                            );
+                            
+                            // Redirect to Zibal payment page
+                            window.location.href = paymentUrl;
+                        } catch (error) {
+                            showNotification('خطا در ایجاد پرداخت زیبال.', 'error');
+                            setIsLoading(false);
+                            return;
+                        }
                     } else {
                         // For ZarinPal, redirect to payment gateway
                         try {
@@ -338,37 +424,57 @@ const BuyerWallet = ({ onTransaction }: { onTransaction: (amount: number, type: 
                             <>
                                 <div className="mt-4">
                                     <label className="block mb-2 font-medium">روش پرداخت</label>
-                                    <div className="flex items-center space-x-4 space-x-reverse mb-4">
-                                        <label className="flex items-center">
-                                            <input 
-                                                type="radio" 
-                                                name="paymentMethod" 
-                                                value="zarinpal" 
-                                                checked={paymentMethod === 'zarinpal'}
-                                                onChange={() => setPaymentMethod('zarinpal')}
-                                                className="ml-2"
-                                            />
-                                            <span>زرین‌پال</span>
-                                        </label>
-                                        <label className="flex items-center">
-                                            <input 
-                                                type="radio" 
-                                                name="paymentMethod" 
-                                                value="card" 
-                                                checked={paymentMethod === 'card'}
-                                                onChange={() => setPaymentMethod('card')}
-                                                className="ml-2"
-                                            />
-                                            <span>کارت به کارت</span>
-                                        </label>
+                                    <div className="grid grid-cols-3 gap-2 mb-4">
+                                        {enabledGateways.zarinpal && (
+                                            <label className="flex items-center justify-center border-2 rounded-lg p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+                                                style={{ borderColor: paymentMethod === 'zarinpal' ? '#3b82f6' : 'transparent' }}>
+                                                <input 
+                                                    type="radio" 
+                                                    name="paymentMethod" 
+                                                    value="zarinpal" 
+                                                    checked={paymentMethod === 'zarinpal'}
+                                                    onChange={() => setPaymentMethod('zarinpal')}
+                                                    className="ml-2"
+                                                />
+                                                <span>زرین‌پال</span>
+                                            </label>
+                                        )}
+                                        {enabledGateways.zibal && (
+                                            <label className="flex items-center justify-center border-2 rounded-lg p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+                                                style={{ borderColor: paymentMethod === 'zibal' ? '#3b82f6' : 'transparent' }}>
+                                                <input 
+                                                    type="radio" 
+                                                    name="paymentMethod" 
+                                                    value="zibal" 
+                                                    checked={paymentMethod === 'zibal'}
+                                                    onChange={() => setPaymentMethod('zibal')}
+                                                    className="ml-2"
+                                                />
+                                                <span>زیبال</span>
+                                            </label>
+                                        )}
+                                        {enabledGateways.cardToCard && (
+                                            <label className="flex items-center justify-center border-2 rounded-lg p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+                                                style={{ borderColor: paymentMethod === 'card' ? '#3b82f6' : 'transparent' }}>
+                                                <input 
+                                                    type="radio" 
+                                                    name="paymentMethod" 
+                                                    value="card" 
+                                                    checked={paymentMethod === 'card'}
+                                                    onChange={() => setPaymentMethod('card')}
+                                                    className="ml-2"
+                                                />
+                                                <span>کارت به کارت</span>
+                                            </label>
+                                        )}
                                     </div>
                                     
                                     {paymentMethod === 'card' && (
                                         <div className="bg-blue-50 dark:bg-blue-900/50 p-4 rounded-lg mb-4">
                                             <h4 className="font-bold mb-2">اطلاعات پرداخت کارت به کارت</h4>
                                             <p className="mb-2">لطفاً مبلغ را به شماره کارت زیر واریز کنید:</p>
-                                            <p className="font-bold text-lg mb-2">6037-99XX-XXXX-XXXX</p>
-                                            <p className="mb-4">(بانک ملی ایران)</p>
+                                            <p className="font-bold text-lg mb-2">{cardInfo.number}</p>
+                                            <p className="mb-4">({cardInfo.bank})</p>
                                             
                                             <div className="space-y-3">
                                                 <div>
@@ -477,6 +583,7 @@ const BuyerDashboard: React.FC = () => {
                 <NavItem to="wallet">💰 کیف پول</NavItem>
                 <NavItem to="activation-requests">📦 درخواست‌های فعال‌سازی</NavItem>
                 <NavItem to="secure-payments">🔒 پرداخت های امن</NavItem>
+                <NavItem to="/invoices">📄 فاکتورهای من</NavItem>
                 <NavItem to="/notifications">🔔 اعلانات</NavItem>
             </nav>
         </div>

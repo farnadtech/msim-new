@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>در حال پردازش پرداخت...</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            text-align: center;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        h2 {
+            color: #333;
+            margin: 0 0 10px;
+        }
+        p {
+            color: #666;
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="spinner"></div>
+        <h2>در حال پردازش پرداخت...</h2>
+        <p>لطفاً صبر کنید</p>
+    </div>
+    
+    <script>
+        // دریافت query parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const trackId = urlParams.get('trackId');
+        const success = urlParams.get('success');
+        const status = urlParams.get('status');
+        const orderId = urlParams.get('orderId');
+        
+        // ساخت URL جدید با hash router
+        const newUrl = `${window.location.origin}/#/payment/zibal/callback?trackId=${trackId}&success=${success}&status=${status}&orderId=${orderId}`;
+        
+        // Redirect به صفحه اصلی
+        window.location.href = newUrl;
+    </script>
+</body>
+</html>

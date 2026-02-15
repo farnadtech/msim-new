@@ -24,9 +24,14 @@ const SellerActiveOrdersPanel: React.FC<SellerActiveOrdersPanelProps> = ({ userI
 
     const loadOrders = async () => {
         try {
+            console.log('🔍 Loading active orders for seller:', userId);
             const sellerOrders = await api.getPurchaseOrders(userId, 'seller');
-            setOrders(sellerOrders.filter((o: PurchaseOrder) => o.line_type === 'active'));
+            console.log('📦 All seller orders:', sellerOrders);
+            const activeOrders = sellerOrders.filter((o: PurchaseOrder) => o.line_type === 'active');
+            console.log('📳 Active orders:', activeOrders);
+            setOrders(activeOrders);
         } catch (error) {
+            console.error('❌ Error loading orders:', error);
             showNotification('خطا در بارگذاری سفارشات', 'error');
         } finally {
             setLoading(false);
@@ -72,7 +77,8 @@ const SellerActiveOrdersPanel: React.FC<SellerActiveOrdersPanelProps> = ({ userI
         }
 
         try {
-            await api.updatePurchaseOrderStatus(orderId, 'verified');
+            // تغییر وضعیت به phone_verified تا فروشنده بتواند مدارک را آپلود کند
+            await api.updatePurchaseOrderStatus(orderId, 'phone_verified');
             showNotification('احراز هویت با موفقیت انجام شد', 'success');
             setVerificationCode(prev => ({...prev, [orderId]: ''}));
             loadOrders();
@@ -116,9 +122,10 @@ const SellerActiveOrdersPanel: React.FC<SellerActiveOrdersPanelProps> = ({ userI
     const getStatusText = (status: string) => {
         switch(status) {
             case 'pending': return '⏳ در انتظار احراز هویت';
-            case 'verified': return '📋 در انتظار آپلود سند';
+            case 'phone_verified': return '📋 در انتظار آپلود مدارک';
             case 'document_submitted': return '⏳ در انتظار تایید ادمین';
             case 'document_rejected': return '⚠️ سند رد شده - می‌توانید مدرک جدید ارسال کنید';
+            case 'verified': return '✅ مدارک تایید شد - منتظر تماس کارشناس';
             case 'completed': return '✅ تکمیل شده';
             default: return status;
         }
@@ -224,10 +231,12 @@ const SellerActiveOrdersPanel: React.FC<SellerActiveOrdersPanelProps> = ({ userI
                             </div>
                         )}
 
-                        {/* مرحله 3: آپلود فرم */}
-                        {(order.status === 'verified' || order.status === 'document_rejected') && (
+                        {/* مرحله 2: آپلود فرم - برای phone_verified و document_rejected */}
+                        {(order.status === 'phone_verified' || order.status === 'document_rejected') && (
                             <div className="border-t pt-4 mt-4">
-                                <h5 className="font-semibold mb-3">📄 آپلود فرم دستنویس</h5>
+                                <h5 className="font-semibold mb-3">
+                                    {order.status === 'phone_verified' ? '📄 آپلود فرم دستنویس' : '📄 آپلود مجدد فرم دستنویس'}
+                                </h5>
                                 <div className="space-y-3">
                                     <input
                                         type="file"
@@ -257,7 +266,7 @@ const SellerActiveOrdersPanel: React.FC<SellerActiveOrdersPanelProps> = ({ userI
                                         disabled={uploadingProgress[order.id]}
                                         className="w-full bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 font-semibold disabled:bg-gray-400 disabled:cursor-not-allowed"
                                     >
-                                        {uploadingProgress[order.id] ? '⏳ در حال آپلود...' : '📤 ارسال سند'}
+                                        {uploadingProgress[order.id] ? '⏳ در حال آپلود...' : (order.status === 'phone_verified' ? '📤 ارسال سند' : '📤 ارسال مجدد سند')}
                                     </button>
                                 </div>
                             </div>

@@ -23,9 +23,21 @@ const SellerInactiveOrdersPanel: React.FC<SellerInactiveOrdersPanelProps> = ({ u
 
     const loadOrders = async () => {
         try {
+            console.log('🔍 Loading orders for seller:', userId);
             const sellerOrders = await api.getPurchaseOrders(userId, 'seller');
-            setOrders(sellerOrders.filter((o: PurchaseOrder) => o.line_type === 'inactive'));
+            console.log('📦 All seller orders:', sellerOrders);
+            const inactiveOrders = sellerOrders.filter((o: PurchaseOrder) => o.line_type === 'inactive');
+            console.log('📱 Inactive orders:', inactiveOrders);
+            setOrders(inactiveOrders);
+            
+            // بارگذاری پیام‌ها برای سفارشات pending (که ممکن است گزارش مشکل داشته باشند)
+            for (const order of inactiveOrders) {
+                if (order.status === 'pending') {
+                    await loadMessages(order.id);
+                }
+            }
         } catch (error) {
+            console.error('❌ Error loading orders:', error);
             showNotification('خطا در بارگذاری سفارشات', 'error');
         } finally {
             setLoading(false);
@@ -165,26 +177,50 @@ const SellerInactiveOrdersPanel: React.FC<SellerInactiveOrdersPanelProps> = ({ u
 
                         {/* فروشنده کد را وارد می‌کند */}
                         {order.status === 'pending' && (
-                            <div className="border-t pt-4 mt-4">
-                                <h5 className="font-semibold mb-3">🔐 وارد کردن کد فعالسازی برای خریدار</h5>
-                                <p className="text-sm text-gray-600 mb-2">کد 6 رقمی را وارد کنید تا برای خریدار نمایش داده شود</p>
-                                <div className="flex gap-2">
-                                    <input
-                                        type="text"
-                                        placeholder="کد 6 رقمی"
-                                        value={codeInput[order.id] || ''}
-                                        onChange={(e) => setCodeInput({...codeInput, [order.id]: e.target.value})}
-                                        maxLength={6}
-                                        className="flex-1 px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
-                                    />
-                                    <button
-                                        onClick={() => handleSendCode(order.id)}
-                                        className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 font-semibold"
-                                    >
-                                        📤 ارسال کد
-                                    </button>
+                            <>
+                                {/* نمایش گزارش مشکل اگر وجود دارد */}
+                                {messages[order.id] && messages[order.id].some(m => m.message_type === 'problem_report') && (
+                                    <div className="bg-red-50 dark:bg-red-900/20 border-r-4 border-red-500 p-4 mb-4 rounded">
+                                        <p className="font-semibold text-red-800 dark:text-red-300 mb-2">⚠️ خریدار گزارش مشکل داده است:</p>
+                                        {messages[order.id]
+                                            .filter(m => m.message_type === 'problem_report')
+                                            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) // مرتب‌سازی از جدید به قدیم
+                                            .slice(0, 1) // فقط آخرین (جدیدترین) گزارش
+                                            .map((msg) => (
+                                                <div key={msg.id} className="bg-red-100 dark:bg-red-900/30 p-3 rounded">
+                                                    <p className="text-sm text-red-900 dark:text-red-200">{msg.message}</p>
+                                                    <p className="text-xs text-red-700 dark:text-red-400 mt-1">
+                                                        {new Date(msg.created_at).toLocaleString('fa-IR')}
+                                                    </p>
+                                                </div>
+                                            ))}
+                                        <p className="text-sm text-red-700 dark:text-red-400 mt-2">
+                                            کد قبلی پاک شده است. لطفاً کد جدید ارسال کنید.
+                                        </p>
+                                    </div>
+                                )}
+                                
+                                <div className="border-t pt-4 mt-4">
+                                    <h5 className="font-semibold mb-3">🔐 وارد کردن کد فعالسازی برای خریدار</h5>
+                                    <p className="text-sm text-gray-600 mb-2">کد 6 رقمی را وارد کنید تا برای خریدار نمایش داده شود</p>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            placeholder="کد 6 رقمی"
+                                            value={codeInput[order.id] || ''}
+                                            onChange={(e) => setCodeInput({...codeInput, [order.id]: e.target.value})}
+                                            maxLength={6}
+                                            className="flex-1 px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
+                                        />
+                                        <button
+                                            onClick={() => handleSendCode(order.id)}
+                                            className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 font-semibold"
+                                        >
+                                            📤 ارسال کد
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
+                            </>
                         )}
 
                         {order.status === 'code_sent' && (
@@ -199,8 +235,8 @@ const SellerInactiveOrdersPanel: React.FC<SellerInactiveOrdersPanelProps> = ({ u
                             </div>
                         )}
 
-                        {/* دکمه مشاهده پیام‌ها */}
-                        {['code_sent', 'completed'].includes(order.status) && (
+                        {/* دکمه مشاهده پیام‌ها - برای همه وضعیت‌ها */}
+                        {['pending', 'code_sent', 'completed'].includes(order.status) && (
                             <div className="border-t pt-4 mt-4">
                                 <button
                                     onClick={() => toggleMessages(order.id)}
@@ -212,18 +248,25 @@ const SellerInactiveOrdersPanel: React.FC<SellerInactiveOrdersPanelProps> = ({ u
                                 {showMessages[order.id] && (
                                     <div className="mt-4 space-y-3">
                                         <div className="max-h-60 overflow-y-auto space-y-2">
-                                            {messages[order.id]?.map((msg) => (
-                                                <div key={msg.id} className={`p-3 rounded-lg ${
-                                                    msg.sender_id === userId 
-                                                        ? 'bg-blue-100 dark:bg-blue-900/30 mr-8' 
-                                                        : 'bg-gray-100 dark:bg-gray-700 ml-8'
-                                                }`}>
-                                                    <p className="text-sm">{msg.message}</p>
-                                                    <p className="text-xs text-gray-500 mt-1">
-                                                        {new Date(msg.created_at).toLocaleString('fa-IR')}
-                                                    </p>
-                                                </div>
-                                            ))}
+                                            {messages[order.id] && messages[order.id].length > 0 ? (
+                                                messages[order.id].map((msg) => (
+                                                    <div key={msg.id} className={`p-3 rounded-lg ${
+                                                        msg.sender_id === userId 
+                                                            ? 'bg-blue-100 dark:bg-blue-900/30 mr-8' 
+                                                            : msg.message_type === 'problem_report'
+                                                            ? 'bg-red-100 dark:bg-red-900/30 ml-8'
+                                                            : 'bg-gray-100 dark:bg-gray-700 ml-8'
+                                                    }`}>
+                                                        <p className="text-sm">{msg.message}</p>
+                                                        <p className="text-xs text-gray-500 mt-1">
+                                                            {new Date(msg.created_at).toLocaleString('fa-IR')}
+                                                            {msg.message_type === 'problem_report' && ' - گزارش مشکل'}
+                                                        </p>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <p className="text-sm text-gray-500 text-center py-4">هنوز پیامی وجود ندارد</p>
+                                            )}
                                         </div>
 
                                         <div className="flex gap-2">

@@ -18,8 +18,10 @@ import SellerDashboard from './pages/SellerDashboard';
 import BuyerDashboard from './pages/BuyerDashboard';
 import AdminPaymentReceipts from './pages/AdminPaymentReceipts';
 import ZarinPalCallbackPage from './pages/ZarinPalCallbackPage';
+import ZibalCallbackPage from './pages/ZibalCallbackPage';
 import SimDetailsPage from './pages/SimDetailsPage';
 import NotificationsPage from './pages/NotificationsPage';
+import InvoicesPage from './pages/InvoicesPageNew';
 import { useAuth } from './hooks/useAuth';
 import { useData } from './hooks/useData';
 import { useAutoCleanup } from './hooks/useAutoCleanup';
@@ -89,7 +91,9 @@ const AppContent: React.FC = () => {
               <Route path="/packages" element={<PackagesPage />} />
               <Route path="/carrier/:carrierName" element={<CarrierSimsPage />} />
               <Route path="/zarinpal/callback" element={<ZarinPalCallbackPage />} />
+              <Route path="/payment/zibal/callback" element={<ZibalCallbackPage />} />
               <Route path="/notifications" element={<NotificationsPage />} />
+              <Route path="/invoices" element={<InvoicesPage />} />
               <Route path="/suspended" element={<SuspendedAccountPage />} />
 
               <Route

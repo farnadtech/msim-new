@@ -482,6 +482,7 @@ const sidebar = (
       <NavItem to="suspensions">🚫 مدیریت تعلیق‌ها</NavItem>
       <NavItem to="suspension-requests">📝 درخواست‌های رفع تعلیق</NavItem>
       <NavItem to="settings">⚙️ تنظیمات سایت</NavItem>
+      <NavItem to="/invoices">📄 فاکتورها</NavItem>
       <NavItem to="/notifications">🔔 اعلانات</NavItem>
     </nav>
   </div>

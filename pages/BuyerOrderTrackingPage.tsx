@@ -43,20 +43,37 @@ const BuyerOrderTrackingPage: React.FC = () => {
 
     const loadActivationCode = async (orderId: number) => {
         try {
+            console.log('🔍 Loading activation code for order:', orderId);
             const code = await api.getActivationCode(orderId);
             if (code) {
+                console.log('✅ Activation code loaded successfully');
                 setActivationCodes(prev => ({...prev, [orderId]: code}));
             } else {
+                console.log('⚠️ No activation code found, retrying...');
                 // If code is not found, try again after a short delay
                 setTimeout(async () => {
                     const retryCode = await api.getActivationCode(orderId);
                     if (retryCode) {
+                        console.log('✅ Activation code loaded on retry');
                         setActivationCodes(prev => ({...prev, [orderId]: retryCode}));
+                    } else {
+                        console.log('❌ Still no activation code found');
                     }
-                }, 1000);
+                }, 2000); // افزایش تاخیر به 2 ثانیه
             }
         } catch (error) {
-            console.error('Error loading activation code:', error);
+            console.error('❌ Error loading activation code:', error);
+            // تلاش مجدد بعد از 3 ثانیه
+            setTimeout(async () => {
+                try {
+                    const retryCode = await api.getActivationCode(orderId);
+                    if (retryCode) {
+                        setActivationCodes(prev => ({...prev, [orderId]: retryCode}));
+                    }
+                } catch (retryError) {
+                    console.error('❌ Retry also failed:', retryError);
+                }
+            }, 3000);
         }
     };
 
@@ -129,9 +146,19 @@ const BuyerOrderTrackingPage: React.FC = () => {
                 problemMessage,
                 'problem_report'
             );
-            showNotification('گزارش مشکل ارسال شد', 'success');
+            showNotification('گزارش مشکل ارسال شد. کد قبلی پاک شد و فروشنده باید کد جدید ارسال کند.', 'success');
             setProblemMessage('');
             setShowProblemForm(prev => ({...prev, [order.id]: false}));
+            // پاک کردن کد از state
+            setActivationCodes(prev => {
+                const newCodes = {...prev};
+                delete newCodes[order.id];
+                return newCodes;
+            });
+            // بارگذاری مجدد پیام‌ها
+            await loadMessages(order.id);
+            // بارگذاری مجدد سفارشات
+            await loadOrders();
         } catch (error) {
             showNotification('خطا در ارسال گزارش', 'error');
         }
@@ -216,6 +243,12 @@ const BuyerOrderTrackingPage: React.FC = () => {
                                         ) : (
                                             <div className="bg-yellow-50 dark:bg-yellow-900/30 rounded-lg p-4 mb-4">
                                                 <p className="text-sm font-semibold mb-2">⏳ در حال بارگذاری کد فعالسازی...</p>
+                                                <button
+                                                    onClick={() => loadActivationCode(order.id)}
+                                                    className="mt-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm"
+                                                >
+                                                    🔄 تلاش مجدد
+                                                </button>
                                             </div>
                                         )}
 

@@ -12,11 +12,14 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.76.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "better-sqlite3": "^12.6.2",
     "firebase": "^12.4.0",
     "firebase-admin": "^13.5.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-router-dom": "^6.24.1"
+    "react-router-dom": "^6.24.1",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.9.1",

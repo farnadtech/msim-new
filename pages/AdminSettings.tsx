@@ -170,6 +170,12 @@ const AdminSettings: React.FC = () => {
             color: 'from-orange-500 to-red-600',
             description: 'درگاه‌های پرداخت و حداقل مبالغ'
         },
+        payment_gateways: {
+            icon: '🔐',
+            label: 'درگاه‌های پرداخت',
+            color: 'from-indigo-500 to-blue-600',
+            description: 'تنظیمات زرین‌پال، زیبال و کارت به کارت'
+        },
         rond: {
             icon: '⭐',
             label: 'رند',
@@ -267,7 +273,7 @@ const AdminSettings: React.FC = () => {
         }
     };
 
-    const categories = ['all', 'commission', 'auction', 'listing', 'payment', 'rond', 'general'];
+    const categories = ['all', 'commission', 'auction', 'listing', 'payment', 'payment_gateways', 'rond', 'general'];
     
     let filteredSettings = activeCategory === 'all' 
         ? settings 
