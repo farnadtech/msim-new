@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+﻿import { supabase } from './supabase';
 import { PaymentReceipt } from '../types';
 
 // ZarinPal payment gateway configuration
@@ -41,7 +41,6 @@ export const initiateZarinPalPayment = async (amount: number, userId: string, us
     // For simulation, we'll return a mock URL
     return `https://sandbox.zarinpal.com/pg/StartPay/${data[0].id}`;
   } catch (error) {
-    console.error('Error initiating ZarinPal payment:', error);
     throw new Error('خطا در ایجاد پرداخت. لطفاً دوباره تلاش کنید.');
   }
 };
@@ -55,13 +54,10 @@ export const handleZarinPalCallback = async (Authority: string, Status: string):
     if (Status === 'OK') {
       // Payment was successful, update user's wallet
       // This would be implemented based on your actual ZarinPal integration
-      console.log('Payment successful for Authority:', Authority);
     } else {
       // Payment failed or was cancelled
-      console.log('Payment failed or cancelled for Authority:', Authority);
     }
   } catch (error) {
-    console.error('Error handling ZarinPal callback:', error);
     throw new Error('خطا در پردازش پرداخت.');
   }
 };
@@ -93,7 +89,6 @@ export const submitCardToCardReceipt = async (
       throw new Error(error.message);
     }
   } catch (error) {
-    console.error('Error submitting card to card receipt:', error);
     throw new Error('خطا در ثبت رسید پرداخت. لطفاً دوباره تلاش کنید.');
   }
 };
@@ -113,7 +108,6 @@ export const getPendingPaymentReceipts = async (): Promise<PaymentReceipt[]> => 
     
     return data as PaymentReceipt[];
   } catch (error) {
-    console.error('Error fetching pending payment receipts:', error);
     throw new Error('خطا در دریافت رسیدهای پرداخت.');
   }
 };
@@ -148,7 +142,6 @@ export const processPaymentReceipt = async (
       throw new Error(error.message);
     }
   } catch (error) {
-    console.error('Error processing payment receipt:', error);
     throw new Error('خطا در پردازش رسید پرداخت.');
   }
 };

@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 // FIX: Replaced v5 `useHistory` with v6 `useNavigate` to resolve module export error.
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { useCarriers } from '../contexts/CarriersContext';
 import { useTheme } from '../contexts/ThemeContext';
 import api from '../services/api-supabase';
 
@@ -31,6 +32,7 @@ const ThemeToggle: React.FC = () => {
 
 const Header: React.FC = () => {
   const { user, logout } = useAuth();
+  const { carriers } = useCarriers();
   const navigate = useNavigate();
   const [unreadCount, setUnreadCount] = useState(0);
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
@@ -43,7 +45,6 @@ const Header: React.FC = () => {
           const count = await api.getUnreadNotificationsCount(user.id);
           setUnreadCount(count);
         } catch (error) {
-          console.error('Error fetching unread notifications count:', error);
         }
       }
     };
@@ -98,9 +99,15 @@ const Header: React.FC = () => {
               </svg>
             </button>
             <div className="absolute right-0 mt-0 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg py-1 hidden group-hover:block group-focus:block">
-              <Link to="/carrier/hamrah-aval" className="block w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">همراه اول</Link>
-              <Link to="/carrier/irancell" className="block w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">ایرانسل</Link>
-              <Link to="/carrier/raytel" className="block w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">رایتل</Link>
+              {carriers.map(carrier => (
+                <Link 
+                  key={carrier.id}
+                  to={`/carrier/${carrier.name}`} 
+                  className="block w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  {carrier.name_fa}
+                </Link>
+              ))}
             </div>
           </div>
           
@@ -243,24 +250,15 @@ const Header: React.FC = () => {
             {/* Operators Section */}
             <div className="border-r-2 border-blue-500 pr-3">
               <p className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-2">اپراتورها</p>
-              <button
-                onClick={() => handleNavClick('/carrier/hamrah-aval')}
-                className="block w-full text-right text-gray-600 dark:text-gray-300 hover:text-blue-500 py-1 pr-2"
-              >
-                همراه اول
-              </button>
-              <button
-                onClick={() => handleNavClick('/carrier/irancell')}
-                className="block w-full text-right text-gray-600 dark:text-gray-300 hover:text-blue-500 py-1 pr-2"
-              >
-                ایرانسل
-              </button>
-              <button
-                onClick={() => handleNavClick('/carrier/raytel')}
-                className="block w-full text-right text-gray-600 dark:text-gray-300 hover:text-blue-500 py-1 pr-2"
-              >
-                رایتل
-              </button>
+              {carriers.map(carrier => (
+                <button
+                  key={carrier.id}
+                  onClick={() => handleNavClick(`/carrier/${carrier.name}`)}
+                  className="block w-full text-right text-gray-600 dark:text-gray-300 hover:text-blue-500 py-1 pr-2"
+                >
+                  {carrier.name_fa}
+                </button>
+              ))}
             </div>
             
             <button

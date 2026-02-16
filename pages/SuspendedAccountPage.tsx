@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useNotification } from '../contexts/NotificationContext';
 import { supabase } from '../services/supabase';
@@ -34,7 +34,6 @@ const SuspendedAccountPage: React.FC = () => {
             showNotification('درخواست شما با موفقیت ارسال شد. پس از بررسی توسط مدیر، نتیجه به شما اطلاع داده می‌شود.', 'success');
             setMessage('');
         } catch (error) {
-            console.error('Error submitting suspension request:', error);
             showNotification('خطا در ارسال درخواست', 'error');
         } finally {
             setIsSubmitting(false);

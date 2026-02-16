@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import api from '../services/api-supabase';
 import { supabase } from '../services/supabase';
 import { PurchaseOrder } from '../types';
@@ -54,31 +54,26 @@ const AdminVerificationPanel: React.FC = () => {
                         }));
                     }
                 } catch (err) {
-                    console.error('Error loading buyer info:', err);
                 }
             }
             
             // بارگذاری مدارک برای سفارشات document_submitted
             pendingOrders.forEach((order) => {
                 if (order.status === 'document_submitted') {
-                    console.log('Loading document for order:', order.id);
                     api.getSellerDocument(order.id)
                         .then(docUrl => {
-                            console.log('Document URL for order', order.id, ':', docUrl);
                             if (docUrl) {
                                 setDocumentUrl(prev => ({
                                     ...prev,
                                     [order.id]: docUrl
                                 }));
                             } else {
-                                console.log('No document found for order:', order.id);
                             }
                         })
                         .catch(err => console.error('Error loading document for order', order.id, ':', err));
                 }
             });
         } catch (error) {
-            console.error('Error loading orders:', error);
             showNotification('خطا در بارگذاری سفارشات', 'error');
         } finally {
             setLoading(false);
@@ -104,7 +99,6 @@ const AdminVerificationPanel: React.FC = () => {
             showNotification('✅ مدارک تایید شد', 'success');
             loadOrders();
         } catch (error: any) {
-            console.error('Approve document error:', error);
             showNotification(`خطا: ${error.message || 'خطای نامشخص'}`, 'error');
         }
     };
@@ -135,20 +129,16 @@ const AdminVerificationPanel: React.FC = () => {
             showNotification('⚠️ مدارک رد شدند', 'success');
             loadOrders();
         } catch (error: any) {
-            console.error('Reject document error:', error);
             showNotification(`خطا: ${error.message || 'خطای نامشخص'}`, 'error');
         }
     };
 
     const handleApproveFinal = async (order: PurchaseOrder) => {
         try {
-            console.log('Final approving order:', order.id);
-            
             // تغییر وضعیت به completed و واریز پول
             await api.updatePurchaseOrderStatus(order.id, 'completed');
             
             if (user) {
-                console.log('Calling approvePurchase with:', { orderId: order.id, adminId: user.id });
                 await api.approvePurchase(order.id, user.id);
             }
             
@@ -174,7 +164,6 @@ const AdminVerificationPanel: React.FC = () => {
             showNotification('✅ معامله تکمیل شد و پول واریز شد', 'success');
             loadOrders();
         } catch (error: any) {
-            console.error('Approve final error:', error);
             showNotification(`خطا: ${error.message || 'خطای نامشخص'}`, 'error');
         }
     };
@@ -193,8 +182,6 @@ const AdminVerificationPanel: React.FC = () => {
             // بازگرداندن پول خریدار
             const order = orders.find(o => o.id === orderId);
             if (order && user) {
-                console.log('Refunding buyer for order:', orderId);
-                
                 const { data: buyerData, error: buyerError } = await supabase
                     .from('users')
                     .select('blocked_balance, wallet_balance')
@@ -202,23 +189,12 @@ const AdminVerificationPanel: React.FC = () => {
                     .single();
                 
                 if (buyerError) {
-                    console.error('Error fetching buyer:', buyerError);
                     throw new Error(buyerError.message);
                 }
-                
-                console.log('Buyer data:', buyerData);
-                
                 if (buyerData) {
                     const refundAmount = order.buyer_blocked_amount;
                     const newBlocked = (buyerData.blocked_balance || 0) - refundAmount;
                     const newWallet = (buyerData.wallet_balance || 0) + refundAmount;
-                    
-                    console.log('Updating buyer balance:', { 
-                        blocked: newBlocked, 
-                        wallet: newWallet,
-                        refund: refundAmount
-                    });
-                    
                     const { error: updateError } = await supabase
                         .from('users')
                         .update({ 
@@ -228,7 +204,6 @@ const AdminVerificationPanel: React.FC = () => {
                         .eq('id', order.buyer_id);
                     
                     if (updateError) {
-                        console.error('Error updating buyer balance:', updateError);
                         throw new Error(updateError.message);
                     }
                 }
@@ -243,7 +218,6 @@ const AdminVerificationPanel: React.FC = () => {
                     .eq('id', order.sim_card_id);
                 
                 if (simError) {
-                    console.error('❌ Error updating SIM card status:', simError);
                     throw new Error(simError.message);
                 }
                 
@@ -259,7 +233,6 @@ const AdminVerificationPanel: React.FC = () => {
             showNotification('❌ معامله لغو شد و پول بازگردانده شد', 'success');
             loadOrders();
         } catch (error: any) {
-            console.error('Reject final error:', error);
             showNotification(`خطا: ${error.message || 'خطای نامشخص'}`, 'error');
         }
     };
@@ -343,7 +316,6 @@ const AdminVerificationPanel: React.FC = () => {
                                                         alt="Document" 
                                                         className="w-full max-h-96 object-contain rounded-lg"
                                                         onError={(e) => {
-                                                            console.error('Image load error for order', order.id, ':', e);
                                                             (e.target as HTMLImageElement).src = 'https://via.placeholder.com/400x300?text=Document+Not+Found';
                                                         }}
                                                     />

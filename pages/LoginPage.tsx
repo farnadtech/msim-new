@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import * as api from '../services/api-supabase';
@@ -47,7 +47,6 @@ const LoginPage: React.FC = () => {
         showNotification('کد تایید ارسال شد', 'success');
         setStep('otp');
         setCountdown(120);
-        console.log('💡 برای تست، کد 123456 را وارد کنید');
       } else {
         setError(result.message);
       }
@@ -89,7 +88,6 @@ const LoginPage: React.FC = () => {
       if (result.success) {
         showNotification('کد تایید مجدداً ارسال شد', 'success');
         setCountdown(120);
-        console.log('💡 برای تست، کد 123456 را وارد کنید');
       } else {
         setError(result.message);
       }

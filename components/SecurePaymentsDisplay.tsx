@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import api from '../services/api-supabase';
 import { useNotification } from '../contexts/NotificationContext';
 import { SecurePayment } from '../types';
@@ -65,7 +65,6 @@ const SecurePaymentsDisplay: React.FC<SecurePaymentsDisplayProps> = ({ userId, r
                 .single();
             return simCard?.is_active ? 'active' : 'inactive';
         } catch (error) {
-            console.error('Error fetching SIM card info:', error);
             return null;
         }
     };

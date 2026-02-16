@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { NavLink } from 'react-router-dom';
 import DashboardLayout from '../components/DashboardLayout';
@@ -62,7 +62,6 @@ const InvoicesPage: React.FC = () => {
                 setCommissions(userCommissions);
             }
         } catch (error) {
-            console.error('Error loading invoices:', error);
         } finally {
             setLoading(false);
         }
@@ -109,7 +108,6 @@ const InvoicesPage: React.FC = () => {
                 seller
             });
         } catch (error) {
-            console.error('Error loading invoice details:', error);
         }
     };
 

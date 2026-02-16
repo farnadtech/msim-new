@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 // FIX: Replaced v5 `useHistory` with v6 `useNavigate` to resolve module export error.
 import { useParams, useNavigate } from 'react-router-dom';
 import { useData } from '../hooks/useData';
@@ -85,7 +85,6 @@ const SimDetailsPage: React.FC = () => {
                 setGuaranteeRate(guarantee);
                 setPaymentDeadlineHours(deadline);
             } catch (error) {
-                console.error('Error loading settings:', error);
             }
         };
         loadSettings();
@@ -123,7 +122,6 @@ const SimDetailsPage: React.FC = () => {
                         const isCompleted = await api.isAuctionPurchaseCompleted(sim.id, currentUser.id);
                         setIsPurchaseCompleted(isCompleted);
                     } catch (err) {
-                        console.error('Error checking auction status:', err);
                     }
                 }
             }
@@ -192,8 +190,6 @@ const SimDetailsPage: React.FC = () => {
             
             // Release guarantee deposits for non-winners
             if (auctionId) {
-                console.log('🔓 Releasing guarantee deposits for non-winners in auction:', auctionId);
-                
                 // Get all participants except the winner
                 const { data: allParticipants } = await supabase
                     .from('auction_participants')
@@ -202,8 +198,6 @@ const SimDetailsPage: React.FC = () => {
                     .neq('user_id', currentUser.id); // Exclude winner
                 
                 if (allParticipants && allParticipants.length > 0) {
-                    console.log(`🔓 Found ${allParticipants.length} non-winners to refund`);
-                    
                     for (const participant of allParticipants) {
                         if (participant.guarantee_deposit_amount > 0 && participant.guarantee_deposit_blocked) {
                             // Get current user balance
@@ -260,8 +254,6 @@ const SimDetailsPage: React.FC = () => {
                             }
                         }
                     }
-                    
-                    console.log('✅ All non-winner deposits released successfully!');
                 }
             }
             
@@ -276,7 +268,6 @@ const SimDetailsPage: React.FC = () => {
                 setTimeout(() => navigate('/buyer'), 1500);
             }
         } catch (err) {
-            console.error('❌ Error completing auction payment:', err);
             if (err instanceof Error) showNotification(err.message, 'error');
             else showNotification('خطایی در هنگام خرید رخ داد.', 'error');
         } finally {
@@ -316,7 +307,10 @@ const SimDetailsPage: React.FC = () => {
         }
     };
     
-    const handleDeliveryMethodSelect = async (method: 'activation_code' | 'physical_card') => {
+    const handleDeliveryMethodSelect = async (
+        method: 'activation_code' | 'physical_card',
+        deliveryAddress?: { address: string; city: string; postalCode: string; phone: string }
+    ) => {
         if (!currentUser || !sim) return;
         
         setIsProcessing(true);
@@ -329,10 +323,9 @@ const SimDetailsPage: React.FC = () => {
                 
                 if (isWinner && isAuctionEnded) {
                     // This is an auction winner selecting delivery method
-                    // We should NOT mark the SIM as sold yet, just create the purchase order
                     const lineType = sim.is_active ? 'active' : 'inactive';
                     
-                    // Create purchase order without marking SIM as sold
+                    // Create purchase order
                     const { data: purchaseOrder, error: orderError } = await supabase
                         .from('purchase_orders')
                         .insert({
@@ -355,8 +348,10 @@ const SimDetailsPage: React.FC = () => {
                         throw new Error('خطا در ایجاد سفارش خرید: ' + orderError.message);
                     }
                     
-                    // For zero-line SIMs, create activation request
+                    // For zero-line SIMs, create activation request with delivery info
                     if (!sim.is_active) {
+                        const seller = await api.getUserById(sim.seller_id);
+                        
                         await api.createActivationRequest(
                             purchaseOrder.id,
                             sim.id,
@@ -364,7 +359,9 @@ const SimDetailsPage: React.FC = () => {
                             sim.seller_id,
                             sim.number,
                             currentUser.name,
-                            seller?.name || 'ناشناس'
+                            seller?.name || 'فروشنده',
+                            method,
+                            deliveryAddress
                         );
                         
                         if (method === 'activation_code') {
@@ -374,25 +371,20 @@ const SimDetailsPage: React.FC = () => {
                             );
                         } else {
                             showNotification(
-                                'خریدتان ثبت شد. فروشنده باید مدارک را ارسال کند.',
+                                'خریدتان ثبت شد. سیمکارت به آدرس شما ارسال خواهد شد.',
                                 'success'
                             );
                         }
                     }
                     
                     setDeliveryModalOpen(false);
-                    // Navigate to buyer dashboard to track the purchase
                     navigate('/buyer');
                     return;
                 }
             }
             
-            // For non-auction SIM cards, use the existing logic
-            // Check if this is an inactive line (zero line) - show delivery method selection
+            // For non-auction SIM cards
             if (!sim.is_active) {
-                // Create activation request for zero-line SIMs
-                const lineType = sim.is_active ? 'active' : 'inactive';
-                
                 // Execute the purchase which will create a purchase order
                 await purchaseSim(sim.id, currentUser.id);
                 
@@ -403,29 +395,38 @@ const SimDetailsPage: React.FC = () => {
                 );
                 
                 if (latestOrder) {
-                    await api.createActivationRequest(
-                        latestOrder.id,
-                        sim.id,
-                        currentUser.id,
-                        sim.seller_id,
-                        sim.number,
-                        currentUser.name,
-                        seller?.name || 'ناشناس'
-                    );
+                    // Update the activation request with delivery info
+                    const { data: activationRequest } = await supabase
+                        .from('activation_requests')
+                        .select('*')
+                        .eq('purchase_order_id', latestOrder.id)
+                        .single();
                     
-                    // Store the delivery method preference (optional - can be added to DB schema)
-                    // For now, we'll just show appropriate notifications based on method
-                    if (method === 'activation_code') {
-                        showNotification(
-                            'خریدتان ثبت شد. لطفاً برای دریافت کد فعالسازی منتظر بمانید.',
-                            'success'
-                        );
-                    } else {
-                        showNotification(
-                            'خریدتان ثبت شد. فروشنده باید مدارک را ارسال کند.',
-                            'success'
-                        );
+                    if (activationRequest) {
+                        await supabase
+                            .from('activation_requests')
+                            .update({
+                                delivery_method: method,
+                                delivery_address: deliveryAddress?.address,
+                                delivery_city: deliveryAddress?.city,
+                                delivery_postal_code: deliveryAddress?.postalCode,
+                                buyer_phone: deliveryAddress?.phone
+                            })
+                            .eq('id', activationRequest.id);
                     }
+                }
+                
+                // Show appropriate notification based on delivery method
+                if (method === 'activation_code') {
+                    showNotification(
+                        'خریدتان ثبت شد. لطفاً برای دریافت کد فعالسازی منتظر بمانید.',
+                        'success'
+                    );
+                } else {
+                    showNotification(
+                        'خریدتان ثبت شد. سیمکارت به آدرس شما ارسال خواهد شد.',
+                        'success'
+                    );
                 }
             } else {
                 // For active lines, just process the purchase normally
@@ -471,13 +472,11 @@ const SimDetailsPage: React.FC = () => {
                     .single();
                 
                 if (auctionError) {
-                    console.error('❌ Error fetching auction details:', auctionError);
                     throw new Error('خطا در دریافت جزئیات حراجی: ' + auctionError.message);
                 }
                 
                 if (auctionData) {
                     auctionDetailId = auctionData.id;
-                    console.log('✅ Found auction details ID:', auctionDetailId, 'for SIM:', sim.id);
                 } else {
                     throw new Error('جزئیات حراجی یافت نشد');
                 }
@@ -486,22 +485,12 @@ const SimDetailsPage: React.FC = () => {
             }
 
             // CRITICAL: Check if user has sufficient balance for guarantee deposit
-            console.log('🔍 BALANCE CHECK PARAMS:', {
-                userId: currentUser.id,
-                auctionId: auctionDetailId,
-                basePrice: sim.price,
-                simId: sim.id
-            });
-            
             const { hasBalance, requiredAmount, currentBalance } = await api.checkGuaranteeDepositBalance(
                 currentUser.id,
                 auctionDetailId,
                 sim.price,
                 sim.id
             );
-
-            console.log('💰 BALANCE CHECK RESULT:', { hasBalance, requiredAmount, currentBalance });
-
             if (!hasBalance) {
                 showNotification(
                     `موجودی کافی نیست. مورد نیاز: ${requiredAmount.toLocaleString('fa-IR')} تومان`,
@@ -510,9 +499,6 @@ const SimDetailsPage: React.FC = () => {
                 setIsProcessing(false);
                 return;
             }
-
-            console.log('✅ Balance check passed, placing bid...');
-            
             // Place bid with guarantee deposit mechanism
             await api.placeBidWithGuaranteeDeposit(
                 sim.id,
@@ -530,7 +516,6 @@ const SimDetailsPage: React.FC = () => {
                 window.location.reload();
             }, 500);
         } catch (err) {
-            console.error('❌ Error placing bid:', err);
             if (err instanceof Error) showNotification(err.message, 'error');
             else showNotification('خطایی در هنگام ثبت پیشنهاد رخ داد.', 'error');
         } finally {

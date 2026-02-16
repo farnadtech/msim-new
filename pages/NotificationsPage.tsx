@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useNotification } from '../contexts/NotificationContext';
 import api from '../services/api-supabase';
@@ -18,7 +18,6 @@ const NotificationsPage: React.FC = () => {
                 const userNotifications = await api.getUserNotifications(user.id);
                 setNotifications(userNotifications);
             } catch (error) {
-                console.error('Error fetching notifications:', error);
             } finally {
                 setLoading(false);
             }

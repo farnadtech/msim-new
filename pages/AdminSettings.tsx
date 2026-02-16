@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useNotification } from '../contexts/NotificationContext';
 import { SiteSetting } from '../types';
 import { supabase } from '../services/supabase';
 import * as settingsService from '../services/settings-service';
+import CompanyStampUpload from '../components/CompanyStampUpload';
+import AdminDataManagement from '../components/AdminDataManagement';
 
 interface CategoryInfo {
     icon: string;
@@ -47,7 +49,6 @@ const AdminSettings: React.FC = () => {
             });
             setEditedValues(initialValues);
         } catch (error) {
-            console.error('Error loading settings:', error);
             showNotification('خطا در بارگذاری تنظیمات', 'error');
         } finally {
             setLoading(false);
@@ -91,7 +92,6 @@ const AdminSettings: React.FC = () => {
             
             showNotification('تنظیمات با موفقیت ذخیره شد و در سراسر سایت به روز شد', 'success');
         } catch (error) {
-            console.error('Error saving setting:', error);
             showNotification('خطا در ذخیره تنظیمات', 'error');
         } finally {
             setSaving(false);
@@ -129,7 +129,6 @@ const AdminSettings: React.FC = () => {
             await loadSettings();
             showNotification('تمام تنظیمات با موفقیت ذخیره شد و در سراسر سایت به روز شد', 'success');
         } catch (error) {
-            console.error('Error saving all settings:', error);
             showNotification('خطا در ذخیره تنظیمات', 'error');
         } finally {
             setSaving(false);
@@ -181,6 +180,12 @@ const AdminSettings: React.FC = () => {
             label: 'رند',
             color: 'from-yellow-500 to-amber-600',
             description: 'هزینه‌های درجات رند مختلف'
+        },
+        sms: {
+            icon: '📱',
+            label: 'پیامک',
+            color: 'from-green-500 to-emerald-600',
+            description: 'Pattern ID های ملی‌پیامک برای ارسال پیامک'
         },
         general: {
             icon: '⚙️',
@@ -273,7 +278,7 @@ const AdminSettings: React.FC = () => {
         }
     };
 
-    const categories = ['all', 'commission', 'auction', 'listing', 'payment', 'payment_gateways', 'rond', 'general'];
+    const categories = ['all', 'commission', 'auction', 'listing', 'payment', 'payment_gateways', 'rond', 'sms', 'general'];
     
     let filteredSettings = activeCategory === 'all' 
         ? settings 
@@ -417,7 +422,102 @@ const AdminSettings: React.FC = () => {
                     <div className="flex justify-center py-12">
                         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div>
                     </div>
-                ) : filteredSettings.length > 0 ? (
+                ) : (
+                    <>
+                        {/* Company Stamp Upload Section */}
+                        {(activeCategory === 'all' || activeCategory === 'general') && (
+                            <div className="mb-6 border dark:border-gray-700 rounded-lg p-6 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20">
+                                <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+                                    <span>🖼️</span>
+                                    <span>مهر شرکت</span>
+                                </h3>
+                                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                                    مهر شرکت به صورت خودکار در پایین تمام فاکتورها نمایش داده می‌شود
+                                </p>
+                                <CompanyStampUpload />
+                            </div>
+                        )}
+
+                        {/* SMS Patterns Section */}
+                        {(activeCategory === 'all' || activeCategory === 'sms') && (
+                            <div className="mb-6 border dark:border-gray-700 rounded-lg p-6 bg-gradient-to-br from-green-50 to-blue-50 dark:from-green-900/20 dark:to-blue-900/20">
+                                <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+                                    <span>📱</span>
+                                    <span>پترن‌های پیامک</span>
+                                </h3>
+                                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                                    متن پیامک‌های ارسالی را سفارشی کنید. از <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">{'{code}'}</code> برای نمایش کد استفاده کنید.
+                                </p>
+                                
+                                <div className="space-y-4">
+                                    {/* Login OTP Pattern */}
+                                    <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border dark:border-gray-700">
+                                        <label className="block font-medium mb-2">پترن کد ورود (OTP)</label>
+                                        <input
+                                            type="text"
+                                            value={editedValues['sms_pattern_login_otp'] || 'کد ورود شما: {code}'}
+                                            onChange={(e) => handleValueChange('sms_pattern_login_otp', e.target.value)}
+                                            className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 mb-2"
+                                            placeholder="کد ورود شما: {code}"
+                                        />
+                                        <button
+                                            onClick={() => handleSave('sms_pattern_login_otp')}
+                                            disabled={saving}
+                                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+                                        >
+                                            {saving ? 'در حال ذخیره...' : 'ذخیره'}
+                                        </button>
+                                    </div>
+
+                                    {/* SIM Verification Pattern */}
+                                    <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border dark:border-gray-700">
+                                        <label className="block font-medium mb-2">پترن احراز هویت خط فعال</label>
+                                        <input
+                                            type="text"
+                                            value={editedValues['sms_pattern_sim_verification'] || 'کد احراز هویت خط: {code}'}
+                                            onChange={(e) => handleValueChange('sms_pattern_sim_verification', e.target.value)}
+                                            className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 mb-2"
+                                            placeholder="کد احراز هویت خط: {code}"
+                                        />
+                                        <button
+                                            onClick={() => handleSave('sms_pattern_sim_verification')}
+                                            disabled={saving}
+                                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+                                        >
+                                            {saving ? 'در حال ذخیره...' : 'ذخیره'}
+                                        </button>
+                                    </div>
+
+                                    {/* Activation Code Pattern */}
+                                    <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border dark:border-gray-700">
+                                        <label className="block font-medium mb-2">پترن کد فعال‌سازی خط صفر</label>
+                                        <input
+                                            type="text"
+                                            value={editedValues['sms_pattern_activation_code'] || 'کد فعال‌سازی خط: {code}'}
+                                            onChange={(e) => handleValueChange('sms_pattern_activation_code', e.target.value)}
+                                            className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 mb-2"
+                                            placeholder="کد فعال‌سازی خط: {code}"
+                                        />
+                                        <button
+                                            onClick={() => handleSave('sms_pattern_activation_code')}
+                                            disabled={saving}
+                                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+                                        >
+                                            {saving ? 'در حال ذخیره...' : 'ذخیره'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Data Management Section */}
+                        {(activeCategory === 'all' || activeCategory === 'general') && (
+                            <div className="mb-6">
+                                <AdminDataManagement />
+                            </div>
+                        )}
+
+                        {filteredSettings.length > 0 ? (
                     <div className="space-y-3">
                         {filteredSettings.map(setting => {
                             const value = editedValues[setting.setting_key] || setting.setting_value;
@@ -483,6 +583,8 @@ const AdminSettings: React.FC = () => {
                             🔍 هیچ تنظیماتی یافت نشد
                         </p>
                     </div>
+                )}
+                    </>
                 )}
                 </div>
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../services/supabase';
 import { AuctionParticipant, SimCard } from '../types';
 
@@ -12,19 +12,13 @@ const AdminAuctionParticipantsPanel: React.FC<{ auctionId: number }> = ({ auctio
     const loadParticipants = async () => {
       try {
         setLoading(true);
-        console.log('🔍 AdminAuctionParticipantsPanel: Loading participants for auctionId:', auctionId);
-        
         // Get auction details
         const { data: auctionData, error: auctionError } = await supabase
           .from('auction_details')
           .select('*')
           .eq('id', auctionId)
           .single();
-
-        console.log('📋 Auction data:', auctionData, 'Error:', auctionError);
-
         if (auctionError) {
-          console.error('❌ Error fetching auction:', auctionError);
           setError('حراجی یافت نشد');
           setLoading(false);
           return;
@@ -47,11 +41,7 @@ const AdminAuctionParticipantsPanel: React.FC<{ auctionId: number }> = ({ auctio
           .select('*')
           .eq('auction_id', auctionId)
           .order('highest_bid', { ascending: false });
-
-        console.log('👥 Participants data:', participantsData, 'Error:', participantsError);
-
         if (participantsError) {
-          console.error('❌ Error fetching participants:', participantsError);
           setError('خطا در دریافت شرکت‌کنندگان');
           setParticipants([]);
           setLoading(false);
@@ -60,7 +50,6 @@ const AdminAuctionParticipantsPanel: React.FC<{ auctionId: number }> = ({ auctio
 
         // Get user names for each participant
         if (participantsData && participantsData.length > 0) {
-          console.log('🔍 Found participants:', participantsData.length);
           const enrichedParticipants = await Promise.all(
             participantsData.map(async (p) => {
               const { data: userData } = await supabase
@@ -82,15 +71,11 @@ const AdminAuctionParticipantsPanel: React.FC<{ auctionId: number }> = ({ auctio
             rank: index + 1,
             is_top_3: index < 3
           }));
-
-          console.log('🎉 Setting ranked participants:', rankedParticipants.length);
           setParticipants(rankedParticipants);
         } else {
-          console.log('⚠️ No participants found for auction:', auctionId);
           setParticipants([]);
         }
       } catch (err) {
-        console.error('Error loading auction participants:', err);
         setError('خطا در بارگذاری داده‌ها');
       } finally {
         setLoading(false);
@@ -101,19 +86,13 @@ const AdminAuctionParticipantsPanel: React.FC<{ auctionId: number }> = ({ auctio
   }, [auctionId]);
 
   if (loading) {
-    console.log('⏳ AdminAuctionParticipantsPanel: Still loading...');
     return <div className="text-center py-4">در حال بارگذاری...</div>;
   }
 
   if (error) {
-    console.log('❌ AdminAuctionParticipantsPanel: Error state:', error);
     return <div className="text-center py-4 text-red-600">{error}</div>;
   }
-
-  console.log('🎨 AdminAuctionParticipantsPanel: Rendering with participants:', participants.length);
-
   if (participants.length === 0) {
-    console.log('⚠️ AdminAuctionParticipantsPanel: No participants to display');
     return (
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
         <h2 className="text-2xl font-bold mb-6 text-gray-800 dark:text-gray-100">

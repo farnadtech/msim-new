@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+﻿import { supabase } from './supabase';
 import * as settingsService from './settings-service';
 import { createNotification, createNotificationForAdmins } from './api-supabase';
 
@@ -30,20 +30,10 @@ export const checkGuaranteeDepositBalance = async (
             .eq('sim_card_id', simId);
         
         if (participantError) {
-            console.error('❌ Error checking existing participants:', participantError);
         }
         
         // If we found any participant record, this is NOT the first bid
         isFirstBid = !existingParticipants || existingParticipants.length === 0;
-        
-        console.log('🔍 checkGuaranteeDepositBalance:', {
-            userId,
-            auctionId,
-            simId,
-            isFirstBid,
-            existingParticipantCount: existingParticipants?.length || 0,
-            participantData: existingParticipants?.[0]
-        });
     }
 
     // Only require deposit for first bid - ZERO for subsequent bids
@@ -63,17 +53,6 @@ export const checkGuaranteeDepositBalance = async (
     const currentBalance = userData.wallet_balance || 0;
     const blockedBalance = userData.blocked_balance || 0;
     const availableBalance = currentBalance - blockedBalance;
-
-    console.log('💰 Balance check result:', { 
-        requiredAmount, 
-        currentBalance,
-        blockedBalance,
-        availableBalance, 
-        hasBalance: availableBalance >= requiredAmount, 
-        isFirstBid,
-        message: isFirstBid ? 'First bid - require deposit' : 'Subsequent bid - NO deposit needed'
-    });
-
     return {
         hasBalance: availableBalance >= requiredAmount,
         requiredAmount,
@@ -93,8 +72,6 @@ export const placeBidWithGuaranteeDeposit = async (
     amount: number,
     basePrice: number
 ): Promise<void> => {
-    console.log('🔔 Placing bid with guarantee deposit - Auction ID:', auctionId, 'Amount:', amount, 'Bidder ID:', bidderId);
-
     // Get auction details
     const { data: auctionDetails, error: auctionError } = await supabase
         .from('auction_details')
@@ -103,12 +80,8 @@ export const placeBidWithGuaranteeDeposit = async (
         .single();
 
     if (auctionError) {
-        console.error('❌ Error fetching auction details:', auctionError);
         throw new Error('جزئیات حراجی یافت نشد');
     }
-    
-    console.log('🔨 Auction details:', auctionDetails);
-
     if (auctionDetails.status === 'ended' || auctionDetails.status === 'completed' || auctionDetails.status === 'cancelled') {
         throw new Error('این حراجی به پایان رسیده یا لغو شده است');
     }
@@ -129,21 +102,12 @@ export const placeBidWithGuaranteeDeposit = async (
         .single();
 
     if (bidderError) {
-        console.error('❌ Error fetching bidder data:', bidderError);
         throw new Error('کاربر یافت نشد');
     }
 
     const bidderWalletBalance = bidderData.wallet_balance || 0;
     const bidderBlockedBalance = bidderData.blocked_balance || 0;
     const availableBalance = bidderWalletBalance - bidderBlockedBalance;
-    
-    console.log('💰 User balance info:', { 
-        bidderWalletBalance, 
-        bidderBlockedBalance, 
-        availableBalance,
-        userId: bidderId
-    });
-
     // Check if user is participating in this auction for the first time
     // Use a more robust approach to check for existing participation
     const { data: existingParticipants, error: participantCheckError } = await supabase
@@ -152,34 +116,16 @@ export const placeBidWithGuaranteeDeposit = async (
         .eq('auction_id', auctionId)
         .eq('user_id', bidderId)
         .eq('sim_card_id', simId);
-
-    console.log('🔍 Checking if first bid for user:', bidderId, 'in auction:', auctionId, 'sim:', simId);
-    console.log('📊 Existing participants query result:', { existingParticipants, participantCheckError });
-    
     const isFirstBid = !existingParticipants || existingParticipants.length === 0;
-    console.log('✅ isFirstBid:', isFirstBid, '| Participant count:', existingParticipants?.length || 0);
-    
     // Calculate guarantee deposit with explicit integer conversion
     const guaranteeRate = await settingsService.getAuctionGuaranteeRate();
     const rawCalculation = basePrice * guaranteeRate;
     const guaranteeDepositAmount = isFirstBid ? Math.floor(rawCalculation) : 0; // Dynamic % of base price for first bid
-    console.log('🔢 Base price and guarantee calculation:', { basePrice, rawCalculation, guaranteeDepositAmount });
-    
     const totalRequiredAmount = isFirstBid ? guaranteeDepositAmount : 0; // Only require guarantee for first bid, not the full bid amount
-    console.log('💸 Guarantee info:', { guaranteeDepositAmount, totalRequiredAmount });
-
     // Check if user has sufficient balance
-    console.log('⚖️ Balance comparison:', { availableBalance, totalRequiredAmount, comparison: availableBalance >= totalRequiredAmount });
-    
     // Add small tolerance for floating point precision issues
     const tolerance = 1; // 1 Toman tolerance
     if (availableBalance + tolerance < totalRequiredAmount) {
-        console.log('❌ Insufficient balance:', { 
-            availableBalance, 
-            totalRequiredAmount,
-            walletBalance: bidderWalletBalance,
-            blockedBalance: bidderBlockedBalance
-        });
         throw new Error(`موجودی کیف پول برای ثبت این پیشنهاد کافی نیست. مورد نیاز: ${totalRequiredAmount.toLocaleString('fa-IR')} تومان`);
     }
 
@@ -210,16 +156,6 @@ export const placeBidWithGuaranteeDeposit = async (
         // IMPORTANT: We only UPDATE blocked_balance, NOT wallet_balance!
         // The money stays in the wallet but is marked as blocked
         const newBidderBlockedBalance = bidderBlockedBalance + guaranteeDepositAmount;
-
-        console.log('🔒 Blocking guarantee deposit:', {
-            userId: bidderId,
-            guaranteeDepositAmount,
-            walletBalance: bidderWalletBalance,
-            oldBlocked: bidderBlockedBalance,
-            newBlocked: newBidderBlockedBalance,
-            availableAfter: bidderWalletBalance - newBidderBlockedBalance
-        });
-
         await supabase
             .from('users')
             .update({
@@ -262,11 +198,8 @@ export const placeBidWithGuaranteeDeposit = async (
         });
 
     // Update auction participant or create new one
-    console.log('📋 Existing participants data:', existingParticipants);
-
     if (existingParticipants && existingParticipants.length > 0) {
         // Update existing participant
-        console.log('🔄 Updating existing participant:', existingParticipants[0].id);
         const { error: updateParticipantError } = await supabase
             .from('auction_participants')
             .update({
@@ -277,22 +210,10 @@ export const placeBidWithGuaranteeDeposit = async (
             .eq('id', existingParticipants[0].id);
         
         if (updateParticipantError) {
-            console.error('❌ Error updating participant:', updateParticipantError);
             throw new Error('خطا در به‌روزرسانی شرکت‌کننده: ' + updateParticipantError.message);
         }
-        console.log('✅ Participant updated successfully');
     } else {
         // Create new participant
-        console.log('🆕 Creating new participant for:', {
-            auction_id: auctionId,
-            sim_card_id: simId,
-            user_id: bidderId,
-            highest_bid: amount,
-            bid_count: 1,
-            guarantee_deposit_amount: guaranteeDepositAmount,
-            guarantee_deposit_blocked: isFirstBid
-        });
-        
         const { data: newParticipant, error: insertParticipantError } = await supabase
             .from('auction_participants')
             .insert({
@@ -307,10 +228,8 @@ export const placeBidWithGuaranteeDeposit = async (
             .select();
         
         if (insertParticipantError) {
-            console.error('❌ Error creating participant:', insertParticipantError);
             throw new Error('خطا در ثبت شرکت‌کننده: ' + insertParticipantError.message);
         }
-        console.log('✅ Participant created successfully:', newParticipant);
     }
 
     // Update auction details
@@ -349,8 +268,6 @@ export const placeBidWithGuaranteeDeposit = async (
         `پیشنهاد ${amount.toLocaleString('fa-IR')} تومان برای سیمکارت ${simData?.number} ثبت شد${isFirstBid ? ` - ${guaranteeDepositAmount.toLocaleString('fa-IR')} تومان حق ضمانت کسر شد` : ''}`,
         'success'
     );
-
-    console.log('✅ Bid placed successfully with guarantee deposit');
 };
 
 /**
@@ -360,8 +277,6 @@ export const placeBidWithGuaranteeDeposit = async (
  * 3. Create winner payment queue for top 3
  */
 export const processAuctionEnding = async (auctionId: number): Promise<void> => {
-    console.log('⏰ Processing auction ending - Auction ID:', auctionId);
-
     // Get auction details
     const { data: auctionDetails, error: auctionError } = await supabase
         .from('auction_details')
@@ -374,7 +289,6 @@ export const processAuctionEnding = async (auctionId: number): Promise<void> => 
     }
 
     if (auctionDetails.status !== 'active') {
-        console.log('⚠️ Auction is not active, skipping processing');
         return;
     }
 
@@ -553,8 +467,6 @@ export const processAuctionEnding = async (auctionId: number): Promise<void> => 
         `تبریک! شما برنده حراجی برای سیمکارت ${simData?.number} با پیشنهاد ${firstWinner.highest_bid.toLocaleString('fa-IR')} تومان شدید. برای تکمیل خرید، ${firstWinner.highest_bid.toLocaleString('fa-IR')} تومان را درون ${deadlineHours} ساعت پرداخت کنید.`,
         'success'
     );
-
-    console.log('✅ Auction processing completed');
 };
 
 /**
@@ -562,8 +474,6 @@ export const processAuctionEnding = async (auctionId: number): Promise<void> => 
  * Called on every page refresh to check for expired payment periods
  */
 export const checkAndProcessPaymentDeadlines = async (): Promise<void> => {
-    console.log('⏰ Checking payment deadlines...');
-
     // Get all pending winner payments that have exceeded deadline
     const { data: expiredPayments, error: expiredError } = await supabase
         .from('auction_winner_queue')
@@ -572,12 +482,10 @@ export const checkAndProcessPaymentDeadlines = async (): Promise<void> => {
         .lt('payment_deadline', new Date().toISOString());
 
     if (expiredError) {
-        console.error('❌ Error checking payment deadlines:', expiredError.message);
         return;
     }
 
     if (!expiredPayments || expiredPayments.length === 0) {
-        console.log('✅ No expired payments found');
         return;
     }
 
@@ -593,8 +501,6 @@ export const checkAndProcessPaymentDeadlines = async (): Promise<void> => {
  * Burn the deposit and escalate to next winner
  */
 export const handleExpiredPaymentDeadline = async (winnerQueue: any): Promise<void> => {
-    console.log('🔥 Handling expired payment for rank:', winnerQueue.winner_rank);
-
     // Mark as failed
     await supabase
         .from('auction_winner_queue')
@@ -702,8 +608,6 @@ export const processAuctionWinnerPayment = async (
     winnerQueueId: number,
     auctionId: number
 ): Promise<void> => {
-    console.log('💳 Processing auction winner payment - Queue ID:', winnerQueueId);
-
     // Get winner queue info
     const { data: winnerQueue } = await supabase
         .from('auction_winner_queue')
@@ -866,8 +770,6 @@ export const processAuctionWinnerPayment = async (
         `حراجی سیمکارت ${simData?.number} با موفقیت تکمیل شد. ${sellerReceivedAmount.toLocaleString('fa-IR')} تومان به حساب شما واریز شد.`,
         'success'
     );
-
-    console.log('✅ Auction winner payment processed successfully');
 };
 
 /**
@@ -875,8 +777,6 @@ export const processAuctionWinnerPayment = async (
  * This is called after winner payment is completed
  */
 export const completeAuctionFlow = async (auctionId: number, winnerUserId: string, simCardId: number): Promise<void> => {
-    console.log('📦 Completing auction flow - Auction ID:', auctionId);
-
     try {
         // Get SIM card to determine line type
         const { data: simData, error: simError } = await supabase
@@ -891,8 +791,6 @@ export const completeAuctionFlow = async (auctionId: number, winnerUserId: strin
 
         // Line type is determined by is_active field
         const lineType = simData.is_active ? 'active' : 'inactive';
-        console.log('📞 Line type detected:', lineType);
-
         // Create a purchase order to handle the line delivery process
         const { data: sellerData, error: sellerError } = await supabase
             .from('users')
@@ -971,10 +869,7 @@ export const completeAuctionFlow = async (auctionId: number, winnerUserId: strin
             `برای سیمکارت ${simData.number}، باید خط ${lineType === 'active' ? 'فعال' : 'غیرفعال'} را برای خریدار تحویل دهید. لطفاً کد فعال‌سازی یا سند مورد نیاز را ارسال کنید.`,
             'info'
         );
-
-        console.log('✅ Auction completion flow initiated successfully');
     } catch (error) {
-        console.error('❌ Error completing auction flow:', error);
         // Re-throw the error so it can be handled by the caller
         throw error;
     }
@@ -985,8 +880,6 @@ export const completeAuctionFlow = async (auctionId: number, winnerUserId: strin
  * This transfers money from blocked balance to seller and marks SIM as sold
  */
 export const finalizePurchaseAfterLineDelivery = async (purchaseOrderId: number): Promise<void> => {
-    console.log('💳 Finalizing purchase after line delivery - Order ID:', purchaseOrderId);
-    
     // Get purchase order
     const { data: purchaseOrder, error: orderError } = await supabase
         .from('purchase_orders')
@@ -1103,7 +996,6 @@ export const finalizePurchaseAfterLineDelivery = async (purchaseOrderId: number)
         .insert(sellerTransaction);
         
     if (sellerTransactionError) {
-        console.error('Error recording seller transaction:', sellerTransactionError.message);
     }
     
     // STEP 6: Record commission
@@ -1133,7 +1025,6 @@ export const finalizePurchaseAfterLineDelivery = async (purchaseOrderId: number)
         .insert(commissionRecord);
         
     if (commissionError) {
-        console.error('Error recording commission:', commissionError.message);
     } else {
         await createNotificationForAdmins(
             '💰 کمیسیون جدید',
@@ -1156,6 +1047,4 @@ export const finalizePurchaseAfterLineDelivery = async (purchaseOrderId: number)
         `${purchaseOrder.seller_received_amount.toLocaleString('fa-IR')} تومان به حساب شما واریز شد.`,
         'success'
     );
-    
-    console.log('✅ Purchase finalized successfully');
 };

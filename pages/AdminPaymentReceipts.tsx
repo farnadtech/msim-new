@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useData } from '../hooks/useData';
 import { useNotification } from '../contexts/NotificationContext';
 import api, { PaymentReceipt } from '../services/api-supabase';
@@ -37,7 +37,6 @@ const AdminPaymentReceipts: React.FC = () => {
       }
       
       // Update the receipt status to 'approved'
-      console.log('Processing receipt approval:', { receiptId, status: 'approved' });
       await paymentService.processPaymentReceipt(receiptId, 'approved', null);
       
       // Update user's wallet balance
@@ -61,7 +60,6 @@ const AdminPaymentReceipts: React.FC = () => {
         .eq('id', receipt.user_id);
       
       if (updateUserError) {
-        console.error('Error updating user balance:', updateUserError);
         throw new Error(updateUserError.message);
       }
       
@@ -79,7 +77,6 @@ const AdminPaymentReceipts: React.FC = () => {
         .insert([transactionData]);
       
       if (transactionError) {
-        console.error('Error inserting transaction:', transactionError);
         throw new Error(transactionError.message);
       }
       
@@ -100,7 +97,6 @@ const AdminPaymentReceipts: React.FC = () => {
     setProcessing(true);
     try {
       // Update the receipt status to 'rejected'
-      console.log('Processing receipt rejection:', { receiptId, status: 'rejected' });
       await paymentService.processPaymentReceipt(receiptId, 'rejected', null);
       
       // Update local state

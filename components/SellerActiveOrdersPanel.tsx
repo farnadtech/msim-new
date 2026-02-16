@@ -11,7 +11,6 @@ interface SellerActiveOrdersPanelProps {
 const SellerActiveOrdersPanel: React.FC<SellerActiveOrdersPanelProps> = ({ userId }) => {
     const [orders, setOrders] = useState<PurchaseOrder[]>([]);
     const [loading, setLoading] = useState(true);
-    const [verificationCode, setVerificationCode] = useState<{[key: number]: string}>({});
     const [uploadedDoc, setUploadedDoc] = useState<{[key: number]: File | null}>({});
     const [messages, setMessages] = useState<{[key: number]: SupportMessage[]}>({});
     const [showMessages, setShowMessages] = useState<{[key: number]: boolean}>({});
@@ -24,14 +23,10 @@ const SellerActiveOrdersPanel: React.FC<SellerActiveOrdersPanelProps> = ({ userI
 
     const loadOrders = async () => {
         try {
-            console.log('🔍 Loading active orders for seller:', userId);
             const sellerOrders = await api.getPurchaseOrders(userId, 'seller');
-            console.log('📦 All seller orders:', sellerOrders);
             const activeOrders = sellerOrders.filter((o: PurchaseOrder) => o.line_type === 'active');
-            console.log('📳 Active orders:', activeOrders);
             setOrders(activeOrders);
         } catch (error) {
-            console.error('❌ Error loading orders:', error);
             showNotification('خطا در بارگذاری سفارشات', 'error');
         } finally {
             setLoading(false);
@@ -43,48 +38,18 @@ const SellerActiveOrdersPanel: React.FC<SellerActiveOrdersPanelProps> = ({ userI
             const msgs = await api.getSupportMessages(orderId);
             setMessages(prev => ({...prev, [orderId]: msgs}));
         } catch (error) {
-            console.error('Error loading messages:', error);
+            // Error loading messages
         }
     };
 
     const toggleMessages = async (orderId: number) => {
         const isShowing = showMessages[orderId];
         if (!isShowing) {
-            // بارگذاری پیام‌ها با تأخیر کوچک برای اطمینان از ذخیره
             setTimeout(() => {
                 loadMessages(orderId);
             }, 300);
         }
         setShowMessages(prev => ({...prev, [orderId]: !isShowing}));
-    };
-
-    const handleSendPhoneVerification = async (orderId: number) => {
-        try {
-            const phoneNumber = '09121234567';
-            await api.sendPhoneVerificationCode(orderId, phoneNumber);
-            showNotification('کد تایید به شماره ارسال شد', 'success');
-            loadOrders();
-        } catch (error) {
-            showNotification('خطا در ارسال کد', 'error');
-        }
-    };
-
-    const handleVerifyCode = async (orderId: number) => {
-        const code = verificationCode[orderId];
-        if (!code || code !== '123456') {
-            showNotification('کد نامعتبر است', 'error');
-            return;
-        }
-
-        try {
-            // تغییر وضعیت به phone_verified تا فروشنده بتواند مدارک را آپلود کند
-            await api.updatePurchaseOrderStatus(orderId, 'phone_verified');
-            showNotification('احراز هویت با موفقیت انجام شد', 'success');
-            setVerificationCode(prev => ({...prev, [orderId]: ''}));
-            loadOrders();
-        } catch (error) {
-            showNotification('خطا در تایید کد', 'error');
-        }
     };
 
     const handleUploadDocument = async (orderId: number, userId: string) => {
@@ -95,25 +60,16 @@ const SellerActiveOrdersPanel: React.FC<SellerActiveOrdersPanelProps> = ({ userI
         }
 
         try {
-            // شروع progress
             setUploadingProgress(prev => ({...prev, [orderId]: true}));
             
-            console.log('Uploading document for order:', orderId);
-            
-            // آپلود فایل به Supabase Storage
             const documentUrl = await api.uploadSellerDocument(file, userId, orderId);
-            console.log('Document uploaded, URL:', documentUrl);
-            
-            // ذخیره URL در database
             const docId = await api.submitSellerDocument(orderId, documentUrl, 'handwriting');
-            console.log('Document submitted to database, ID:', docId);
             
             showNotification('سند با موفقیت آپلود شد', 'success');
             setUploadedDoc(prev => ({...prev, [orderId]: null}));
             setUploadingProgress(prev => ({...prev, [orderId]: false}));
             loadOrders();
         } catch (error: any) {
-            console.error('Upload error for order', orderId, ':', error);
             setUploadingProgress(prev => ({...prev, [orderId]: false}));
             showNotification(`خطا در آپلود سند: ${error.message || 'خطای نامشخص'}`, 'error');
         }
@@ -121,8 +77,7 @@ const SellerActiveOrdersPanel: React.FC<SellerActiveOrdersPanelProps> = ({ userI
 
     const getStatusText = (status: string) => {
         switch(status) {
-            case 'pending': return '⏳ در انتظار احراز هویت';
-            case 'phone_verified': return '📋 در انتظار آپلود مدارک';
+            case 'pending': return '📋 در انتظار آپلود مدارک';
             case 'document_submitted': return '⏳ در انتظار تایید ادمین';
             case 'document_rejected': return '⚠️ سند رد شده - می‌توانید مدرک جدید ارسال کنید';
             case 'verified': return '✅ مدارک تایید شد - منتظر تماس کارشناس';
@@ -198,44 +153,11 @@ const SellerActiveOrdersPanel: React.FC<SellerActiveOrdersPanelProps> = ({ userI
                             </div>
                         )}
 
-                        {/* مرحله 1: ارسال SMS احراز هویت */}
-                        {order.status === 'pending' && (
-                            <div className="border-t pt-4 mt-4 space-y-3">
-                                <button
-                                    onClick={() => handleSendPhoneVerification(order.id)}
-                                    className="w-full bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 font-semibold"
-                                >
-                                    📱 احراز هویت - ارسال کد به شماره
-                                </button>
-
-                                {/* مرحله 2: وارد کردن کد */}
-                                <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded">
-                                    <h5 className="font-semibold mb-3">🔐 وارد کردن کد تایید (123456)</h5>
-                                    <div className="flex gap-2">
-                                        <input
-                                            type="text"
-                                            placeholder="کد 6 رقمی"
-                                            value={verificationCode[order.id] || ''}
-                                            onChange={(e) => setVerificationCode(prev => ({...prev, [order.id]: e.target.value}))}
-                                            maxLength={6}
-                                            className="flex-1 px-3 py-2 border rounded-lg dark:bg-gray-600 dark:border-gray-600"
-                                        />
-                                        <button
-                                            onClick={() => handleVerifyCode(order.id)}
-                                            className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 font-semibold"
-                                        >
-                                            ✅ تایید
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* مرحله 2: آپلود فرم - برای phone_verified و document_rejected */}
-                        {(order.status === 'phone_verified' || order.status === 'document_rejected') && (
+                        {/* آپلود فرم - برای pending و document_rejected */}
+                        {(order.status === 'pending' || order.status === 'document_rejected') && (
                             <div className="border-t pt-4 mt-4">
                                 <h5 className="font-semibold mb-3">
-                                    {order.status === 'phone_verified' ? '📄 آپلود فرم دستنویس' : '📄 آپلود مجدد فرم دستنویس'}
+                                    {order.status === 'pending' ? '📄 آپلود فرم دستنویس' : '📄 آپلود مجدد فرم دستنویس'}
                                 </h5>
                                 <div className="space-y-3">
                                     <input
@@ -266,7 +188,7 @@ const SellerActiveOrdersPanel: React.FC<SellerActiveOrdersPanelProps> = ({ userI
                                         disabled={uploadingProgress[order.id]}
                                         className="w-full bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 font-semibold disabled:bg-gray-400 disabled:cursor-not-allowed"
                                     >
-                                        {uploadingProgress[order.id] ? '⏳ در حال آپلود...' : (order.status === 'phone_verified' ? '📤 ارسال سند' : '📤 ارسال مجدد سند')}
+                                        {uploadingProgress[order.id] ? '⏳ در حال آپلود...' : (order.status === 'pending' ? '📤 ارسال سند' : '📤 ارسال مجدد سند')}
                                     </button>
                                 </div>
                             </div>

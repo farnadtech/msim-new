@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import api from '../services/api-supabase';
 import { PurchaseOrder, SupportMessage } from '../types';
 import { useAuth } from '../hooks/useAuth';
@@ -10,6 +10,8 @@ const BuyerOrderTrackingPage: React.FC = () => {
     const [orders, setOrders] = useState<PurchaseOrder[]>([]);
     const [loading, setLoading] = useState(true);
     const [activationCodes, setActivationCodes] = useState<{[key: number]: string}>({});
+    const [deliveryMethods, setDeliveryMethods] = useState<{[key: number]: string}>({});
+    const [codeUnderReview, setCodeUnderReview] = useState<{[key: number]: boolean}>({});
     const [messages, setMessages] = useState<{[key: number]: SupportMessage[]}>({});
     const [showMessages, setShowMessages] = useState<{[key: number]: boolean}>({});
     const [replyMessage, setReplyMessage] = useState<{[key: number]: string}>({});
@@ -27,11 +29,16 @@ const BuyerOrderTrackingPage: React.FC = () => {
             const buyerOrders = await api.getPurchaseOrders(user.id, 'buyer');
             setOrders(buyerOrders.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
             
-            // بارگذاری کدهای فعالسازی برای خطوط صفر
+            // بارگذاری اطلاعات activation request برای خطوط صفر
             for (const order of buyerOrders) {
-                if (order.line_type === 'inactive' && order.status === 'code_sent') {
-                    // Always try to load the activation code, even if it's already loaded
-                    loadActivationCode(order.id);
+                if (order.line_type === 'inactive') {
+                    // Load activation request to get delivery method
+                    loadActivationRequestInfo(order.id);
+                    
+                    // Only load activation code if status is code_sent
+                    if (order.status === 'code_sent') {
+                        loadActivationCode(order.id);
+                    }
                 }
             }
         } catch (error) {
@@ -41,28 +48,42 @@ const BuyerOrderTrackingPage: React.FC = () => {
         }
     };
 
+    const loadActivationRequestInfo = async (orderId: number) => {
+        try {
+            const { data } = await api.supabase
+                .from('activation_requests')
+                .select('delivery_method, activation_code')
+                .eq('purchase_order_id', orderId)
+                .single();
+            
+            if (data) {
+                setDeliveryMethods(prev => ({...prev, [orderId]: data.delivery_method}));
+                // If physical delivery and code exists, it's under admin review
+                if (data.delivery_method === 'physical_card' && data.activation_code) {
+                    setCodeUnderReview(prev => ({...prev, [orderId]: true}));
+                }
+            }
+        } catch (error) {
+            // Ignore error
+        }
+    };
+
     const loadActivationCode = async (orderId: number) => {
         try {
-            console.log('🔍 Loading activation code for order:', orderId);
             const code = await api.getActivationCode(orderId);
             if (code) {
-                console.log('✅ Activation code loaded successfully');
                 setActivationCodes(prev => ({...prev, [orderId]: code}));
             } else {
-                console.log('⚠️ No activation code found, retrying...');
                 // If code is not found, try again after a short delay
                 setTimeout(async () => {
                     const retryCode = await api.getActivationCode(orderId);
                     if (retryCode) {
-                        console.log('✅ Activation code loaded on retry');
                         setActivationCodes(prev => ({...prev, [orderId]: retryCode}));
                     } else {
-                        console.log('❌ Still no activation code found');
                     }
                 }, 2000); // افزایش تاخیر به 2 ثانیه
             }
         } catch (error) {
-            console.error('❌ Error loading activation code:', error);
             // تلاش مجدد بعد از 3 ثانیه
             setTimeout(async () => {
                 try {
@@ -71,7 +92,6 @@ const BuyerOrderTrackingPage: React.FC = () => {
                         setActivationCodes(prev => ({...prev, [orderId]: retryCode}));
                     }
                 } catch (retryError) {
-                    console.error('❌ Retry also failed:', retryError);
                 }
             }, 3000);
         }
@@ -82,7 +102,6 @@ const BuyerOrderTrackingPage: React.FC = () => {
             const msgs = await api.getSupportMessages(orderId);
             setMessages(prev => ({...prev, [orderId]: msgs}));
         } catch (error) {
-            console.error('Error loading messages:', error);
         }
     };
 
@@ -170,9 +189,10 @@ const BuyerOrderTrackingPage: React.FC = () => {
             if (order.status === 'code_sent') return '📥 کد دریافت شد - لطفا تایید کنید';
             if (order.status === 'completed') return '✅ تکمیل شده';
         } else {
-            if (order.status === 'pending') return '⏳ در انتظار احراز هویت فروشنده';
-            if (order.status === 'verified') return '📋 در حال بررسی اسناد';
+            if (order.status === 'pending') return '⏳ در انتظار آپلود مدارک فروشنده';
             if (order.status === 'document_submitted') return '⏳ در انتظار تایید ادمین';
+            if (order.status === 'document_rejected') return '⚠️ مدارک فروشنده رد شده - در حال بررسی مجدد';
+            if (order.status === 'verified') return '✅ مدارک تایید شد - منتظر تماس کارشناس';
             if (order.status === 'completed') return '✅ تکمیل شده';
         }
         return order.status;
@@ -230,8 +250,32 @@ const BuyerOrderTrackingPage: React.FC = () => {
                                     </div>
                                 </div>
 
-                                {/* نمایش کد برای خطوط صفر */}
-                                {order.line_type === 'inactive' && order.status === 'code_sent' && (
+                                {/* پیام برای تحویل فیزیکی */}
+                                {order.line_type === 'inactive' && 
+                                 deliveryMethods[order.id] === 'physical_card' && (
+                                    <div className="border-t pt-4 mt-4">
+                                        {codeUnderReview[order.id] ? (
+                                            <div className="bg-yellow-50 dark:bg-yellow-900/30 rounded-lg p-4">
+                                                <p className="text-lg font-semibold mb-2">⏳ کد در حال بررسی توسط ادمین</p>
+                                                <p className="text-sm text-gray-700 dark:text-gray-300">
+                                                    فروشنده کد فعال‌سازی را ارسال کرده و در حال بررسی توسط ادمین است. پس از تایید، سیمکارت به آدرس شما ارسال خواهد شد.
+                                                </p>
+                                            </div>
+                                        ) : (
+                                            <div className="bg-blue-50 dark:bg-blue-900/30 rounded-lg p-4">
+                                                <p className="text-lg font-semibold mb-2">📦 تحویل فیزیکی سیمکارت</p>
+                                                <p className="text-sm text-gray-700 dark:text-gray-300">
+                                                    سیمکارت به آدرس شما ارسال خواهد شد. لطفاً منتظر تماس پشتیبانی بمانید.
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* نمایش کد فقط برای تحویل با کد فعال‌سازی */}
+                                {order.line_type === 'inactive' && 
+                                 order.status === 'code_sent' && 
+                                 deliveryMethods[order.id] === 'activation_code' && (
                                     <div className="border-t pt-4 mt-4">
                                         {activationCodes[order.id] ? (
                                             <div className="bg-green-50 dark:bg-green-900/30 rounded-lg p-4 mb-4">

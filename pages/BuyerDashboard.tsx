@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { NavLink, Route, Routes, Link, useNavigate } from 'react-router-dom';
 import DashboardLayout from '../components/DashboardLayout';
 import SecurePaymentsDisplay from '../components/SecurePaymentsDisplay';
@@ -28,7 +28,6 @@ const BuyerOverview = () => {
             const orders = await api.getPurchaseOrders(user.id, 'buyer');
             setPurchasedCount(orders.length);
         } catch (error) {
-            console.error('Error loading purchases:', error);
         } finally {
             setLoading(false);
         }
@@ -239,7 +238,6 @@ const BuyerWallet = ({ onTransaction }: { onTransaction: (amount: number, type: 
                     }
                 }
             } catch (error) {
-                console.error('Error loading payment gateways:', error);
             }
         };
         
@@ -311,7 +309,6 @@ const BuyerWallet = ({ onTransaction }: { onTransaction: (amount: number, type: 
                             try {
                                 receiptImageUrl = await api.uploadReceiptImage(receiptImage, user!.id);
                             } catch (error) {
-                                console.error('Receipt image upload failed:', error);
                                 showNotification(`خطا در آپلود تصویر رسید: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
                                 setIsLoading(false);
                                 return;

@@ -1,4 +1,4 @@
-import { ZIBAL_CONFIG, getZibalConfig } from '../config/zibal';
+﻿import { ZIBAL_CONFIG, getZibalConfig } from '../config/zibal';
 
 export interface ZibalRequestParams {
     amount: number;
@@ -68,9 +68,6 @@ export const createZibalPayment = async (params: ZibalRequestParams): Promise<Zi
         });
 
         const data: ZibalRequestResponse = await response.json();
-        
-        console.log('📥 Zibal Response:', data);
-
         if (data.result === 100 && data.trackId) {
             // موفقیت - ساخت URL پرداخت
             data.paymentUrl = `${ZIBAL_CONFIG.START_URL}${data.trackId}`;
@@ -78,7 +75,6 @@ export const createZibalPayment = async (params: ZibalRequestParams): Promise<Zi
 
         return data;
     } catch (error) {
-        console.error('❌ Zibal Request Error:', error);
         throw error instanceof Error ? error : new Error('خطا در ایجاد درخواست پرداخت زیبال');
     }
 };
@@ -99,9 +95,6 @@ export const verifyZibalPayment = async (params: ZibalVerifyParams): Promise<Zib
             merchant: config.merchantId,
             trackId: params.trackId
         };
-
-        console.log('📤 Zibal Verify Request:', requestBody);
-
         const response = await fetch(ZIBAL_CONFIG.VERIFY_URL, {
             method: 'POST',
             headers: {
@@ -111,12 +104,8 @@ export const verifyZibalPayment = async (params: ZibalVerifyParams): Promise<Zib
         });
 
         const data: ZibalVerifyResponse = await response.json();
-        
-        console.log('📥 Zibal Verify Response:', data);
-
         return data;
     } catch (error) {
-        console.error('❌ Zibal Verify Error:', error);
         throw error instanceof Error ? error : new Error('خطا در تایید پرداخت زیبال');
     }
 };

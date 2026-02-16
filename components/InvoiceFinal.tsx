@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { PurchaseOrder } from '../types';
+import * as settingsService from '../services/settings-service';
 
 interface InvoiceFinalProps {
     order: PurchaseOrder;
@@ -8,6 +9,16 @@ interface InvoiceFinalProps {
 }
 
 const InvoiceFinal: React.FC<InvoiceFinalProps> = ({ order, type, onClose }) => {
+    const [companyStampUrl, setCompanyStampUrl] = useState<string>('');
+    
+    useEffect(() => {
+        const loadStamp = async () => {
+            const url = await settingsService.getCompanyStampUrl();
+            setCompanyStampUrl(url);
+        };
+        loadStamp();
+    }, []);
+    
     const formatPrice = (price: number) => price.toLocaleString('fa-IR');
     
     const formatDate = (dateString: string) => {
@@ -47,13 +58,13 @@ const InvoiceFinal: React.FC<InvoiceFinalProps> = ({ order, type, onClose }) => 
                     <div className="flex gap-2">
                         <button
                             onClick={handlePrint}
-                            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 text-sm"
+                            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 text-sm print:hidden"
                         >
                             🖨️ چاپ
                         </button>
                         <button
                             onClick={onClose}
-                            className="bg-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-400 text-sm"
+                            className="bg-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-400 text-sm print:hidden"
                         >
                             بستن
                         </button>
@@ -183,8 +194,21 @@ const InvoiceFinal: React.FC<InvoiceFinalProps> = ({ order, type, onClose }) => 
                             </p>
                         </div>
                         <div className="text-center">
-                            <div className="h-16 border-b-2 border-gray-800 mb-2"></div>
-                            <p className="text-sm font-semibold text-gray-800">مهر و امضای سیم کارت 724</p>
+                            {companyStampUrl ? (
+                                <div className="flex flex-col items-center">
+                                    <img 
+                                        src={companyStampUrl} 
+                                        alt="مهر شرکت" 
+                                        className="h-16 w-auto object-contain mb-2"
+                                    />
+                                    <p className="text-sm font-semibold text-gray-800">مهر و امضای سیم کارت 724</p>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="h-16 border-b-2 border-gray-800 mb-2"></div>
+                                    <p className="text-sm font-semibold text-gray-800">مهر و امضای سیم کارت 724</p>
+                                </>
+                            )}
                         </div>
                     </div>
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useNotification } from '../contexts/NotificationContext';
 import { useAuth } from '../hooks/useAuth';
 import { ActivationRequest } from '../types';
@@ -29,7 +29,6 @@ const AdminActivationRequestsPanel: React.FC = () => {
             setRequests(allRequests);
         } catch (error) {
             showNotification('خطا در بارگذاری درخواست‌های فعال‌سازی', 'error');
-            console.error(error);
         } finally {
             setLoading(false);
         }
@@ -152,6 +151,8 @@ const AdminActivationRequestsPanel: React.FC = () => {
                                             <span className="font-mono bg-yellow-50 dark:bg-yellow-900/30 px-2 py-1 rounded">
                                                 {request.activation_code}
                                             </span>
+                                        ) : (request as any).delivery_method === 'physical_card' ? (
+                                            <span className="text-blue-600 dark:text-blue-400 font-semibold">📦 تحویل فیزیکی</span>
                                         ) : (
                                             <span className="text-gray-500">هنوز ارسال نشده</span>
                                         )}
@@ -208,6 +209,12 @@ const AdminActivationRequestsPanel: React.FC = () => {
                                 <p className="font-bold">{selectedRequest.seller_name}</p>
                             </div>
                             <div>
+                                <p className="text-gray-600 dark:text-gray-400 text-sm">نحوه تحویل</p>
+                                <p className="font-bold">
+                                    {(selectedRequest as any).delivery_method === 'physical_card' ? '📦 تحویل فیزیکی' : '📝 کد فعال‌سازی'}
+                                </p>
+                            </div>
+                            <div>
                                 <p className="text-gray-600 dark:text-gray-400 text-sm">کد فعال‌سازی</p>
                                 <p className="font-mono bg-yellow-50 dark:bg-yellow-900/30 px-2 py-1 rounded inline-block">
                                     {selectedRequest.activation_code || 'هنوز ارسال نشده'}
@@ -218,6 +225,50 @@ const AdminActivationRequestsPanel: React.FC = () => {
                                 <p className="font-bold">{new Date(selectedRequest.created_at).toLocaleDateString('fa-IR')}</p>
                             </div>
                         </div>
+
+                        {/* اطلاعات تماس فروشنده */}
+                        {(selectedRequest as any).seller_phone && (
+                            <div className="mb-6 bg-green-50 dark:bg-green-900/30 p-4 rounded-lg border border-green-200 dark:border-green-700">
+                                <h4 className="font-bold mb-3 text-green-800 dark:text-green-300">📞 اطلاعات تماس فروشنده</h4>
+                                <div>
+                                    <p className="text-gray-600 dark:text-gray-400 text-sm">شماره تماس فروشنده</p>
+                                    <p className="font-bold font-mono">{(selectedRequest as any).seller_phone}</p>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* اطلاعات تماس و آدرس خریدار */}
+                        {(selectedRequest as any).delivery_method === 'physical_card' && (
+                            <div className="mb-6 bg-blue-50 dark:bg-blue-900/30 p-4 rounded-lg border border-blue-200 dark:border-blue-700">
+                                <h4 className="font-bold mb-3 text-blue-800 dark:text-blue-300">📍 اطلاعات تحویل خریدار</h4>
+                                <div className="space-y-2">
+                                    {(selectedRequest as any).buyer_phone && (
+                                        <div>
+                                            <p className="text-gray-600 dark:text-gray-400 text-sm">شماره تماس خریدار</p>
+                                            <p className="font-bold font-mono">{(selectedRequest as any).buyer_phone}</p>
+                                        </div>
+                                    )}
+                                    {(selectedRequest as any).delivery_city && (
+                                        <div>
+                                            <p className="text-gray-600 dark:text-gray-400 text-sm">شهر</p>
+                                            <p className="font-bold">{(selectedRequest as any).delivery_city}</p>
+                                        </div>
+                                    )}
+                                    {(selectedRequest as any).delivery_postal_code && (
+                                        <div>
+                                            <p className="text-gray-600 dark:text-gray-400 text-sm">کد پستی</p>
+                                            <p className="font-bold font-mono">{(selectedRequest as any).delivery_postal_code}</p>
+                                        </div>
+                                    )}
+                                    {(selectedRequest as any).delivery_address && (
+                                        <div>
+                                            <p className="text-gray-600 dark:text-gray-400 text-sm">آدرس کامل</p>
+                                            <p className="font-bold">{(selectedRequest as any).delivery_address}</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
 
                         {selectedRequest.admin_notes && (
                             <div className="mb-6 bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg">

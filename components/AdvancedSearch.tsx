@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useCarriers } from '../contexts/CarriersContext';
 
 interface SearchCriteria {
     number: string;
@@ -17,6 +18,7 @@ interface AdvancedSearchProps {
 }
 
 const AdvancedSearch: React.FC<AdvancedSearchProps> = ({ onSearch }) => {
+    const { carriers } = useCarriers();
     const [criteria, setCriteria] = useState({
         number: '',
         carrier: 'all',
@@ -104,9 +106,11 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({ onSearch }) => {
                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring focus:ring-blue-200 dark:bg-gray-700"
                         >
                             <option value="all">همه</option>
-                            <option value="همراه اول">همراه اول</option>
-                            <option value="ایرانسل">ایرانسل</option>
-                            <option value="رایتل">رایتل</option>
+                            {carriers.map(carrier => (
+                                <option key={carrier.id} value={carrier.name_fa}>
+                                    {carrier.name_fa}
+                                </option>
+                            ))}
                         </select>
                     </div>
                     <div>

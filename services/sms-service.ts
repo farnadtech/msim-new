@@ -25,27 +25,17 @@ interface SendOTPResult {
  * Pattern should be created in Melipayamak panel with variable: {code}
  * Example pattern: "کد تایید شما: {code}"
  */
-export const sendOTP = async (phoneNumber: string, code: string): Promise<SendOTPResult> => {
+export const sendOTP = async (phoneNumber: string, code: string, pattern?: string): Promise<SendOTPResult> => {
   try {
-    console.log('📱 Sending OTP to:', phoneNumber, 'with code:', code);
-    console.log('🔧 SMS Config:', {
-      username: SMS_CONFIG.username,
-      password: SMS_CONFIG.password,  // Debug: show actual password
-      otpPatternId: SMS_CONFIG.otpPatternId,
-      activationPatternId: SMS_CONFIG.activationPatternId
-    });
-
     const params = new URLSearchParams();
     params.append('username', SMS_CONFIG.username);
     params.append('password', SMS_CONFIG.password);
     params.append('to', phoneNumber);
     params.append('bodyId', SMS_CONFIG.otpPatternId.toString());
     params.append('text', code);
-      
-      console.log('📤 Sending request with params:', Object.fromEntries(params));
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     const response = await fetch(MELIPAYAMAK_API_URL, {
       method: 'POST',
@@ -59,11 +49,8 @@ export const sendOTP = async (phoneNumber: string, code: string): Promise<SendOT
     });
     
     clearTimeout(timeoutId);
-    
-    console.log('📤 Request sent to Melipayamak');
 
     const result = await response.text();
-    console.log('📨 SMS API Response:', result);
 
     // Try to parse as JSON first (newer Melipayamak API responses)
     try {
@@ -145,20 +132,9 @@ export const sendOTP = async (phoneNumber: string, code: string): Promise<SendOT
       };
     }
   } catch (error) {
-    console.error('❌ SMS sending error:', error);
-    let errorMessage = 'خطا در ارسال پیامک';
-    
-    if (error instanceof Error) {
-      if (error.name === 'AbortError') {
-        errorMessage = 'زمان حد زیادی درخواست مطهی رسید. لطفاً دوباره سعی کنید.';
-      } else {
-        errorMessage = error.message;
-      }
-    }
-    
     return {
       success: false,
-      error: errorMessage,
+      error: 'خطا در ارسال پیامک',
     };
   }
 };
@@ -173,25 +149,15 @@ export const sendActivationCode = async (
   code: string
 ): Promise<SendOTPResult> => {
   try {
-    console.log('📱 Sending activation code to:', phoneNumber, 'with code:', code);
-    console.log('🔧 SMS Config:', {
-      username: SMS_CONFIG.username,
-      password: SMS_CONFIG.password,  // Debug: show actual password
-      otpPatternId: SMS_CONFIG.otpPatternId,
-      activationPatternId: SMS_CONFIG.activationPatternId
-    });
-
     const params = new URLSearchParams();
     params.append('username', SMS_CONFIG.username);
     params.append('password', SMS_CONFIG.password);
     params.append('to', phoneNumber);
     params.append('bodyId', SMS_CONFIG.activationPatternId.toString());
     params.append('text', code);
-      
-      console.log('📤 Sending activation request with params:', Object.fromEntries(params));
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     const response = await fetch(MELIPAYAMAK_API_URL, {
       method: 'POST',
@@ -207,7 +173,6 @@ export const sendActivationCode = async (
     clearTimeout(timeoutId);
 
     const result = await response.text();
-    console.log('📨 SMS API Response:', result);
 
     // Try to parse as JSON first (newer Melipayamak API responses)
     try {
@@ -244,20 +209,9 @@ export const sendActivationCode = async (
       };
     }
   } catch (error) {
-    console.error('❌ Activation code sending error:', error);
-    let errorMessage = 'خطا در ارسال کد فعال‌سازی';
-    
-    if (error instanceof Error) {
-      if (error.name === 'AbortError') {
-        errorMessage = 'زمان حد زیادی درخواست مطهی رسید. لطفاً دوباره سعی کنید.';
-      } else {
-        errorMessage = error.message;
-      }
-    }
-    
     return {
       success: false,
-      error: errorMessage,
+      error: 'خطا در ارسال کد فعال‌سازی',
     };
   }
 };

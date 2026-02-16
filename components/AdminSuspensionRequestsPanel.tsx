@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../services/supabase';
 import { SuspensionRequest } from '../types';
 import { useNotification } from '../contexts/NotificationContext';
@@ -22,8 +22,6 @@ const AdminSuspensionRequestsPanel: React.FC = () => {
     const fetchRequests = async () => {
         setLoading(true);
         try {
-            console.log('🔍 Fetching suspension requests...');
-            
             // First, let's check if we can access the table at all
             const { data: test, error: testError } = await supabase
                 .from('suspension_requests')
@@ -31,12 +29,8 @@ const AdminSuspensionRequestsPanel: React.FC = () => {
                 .limit(1);
                 
             if (testError) {
-                console.error('❌ Permission test error:', testError);
                 throw new Error(`خطا در دسترسی به جدول: ${testError.message}`);
             }
-            
-            console.log('✅ Table access test passed');
-            
             let query = supabase
                 .from('suspension_requests')
                 .select(`
@@ -46,19 +40,14 @@ const AdminSuspensionRequestsPanel: React.FC = () => {
                 .order('created_at', { ascending: false });
 
             if (filterStatus !== 'all') {
-                console.log(`🔍 Filtering by status: ${filterStatus}`);
                 query = query.eq('status', filterStatus);
             }
 
             const { data, error } = await query;
 
             if (error) {
-                console.error('❌ Query error:', error);
                 throw error;
             }
-            
-            console.log(`✅ Fetched ${data?.length || 0} requests`);
-            
             // Log the first few requests for debugging
             if (data && data.length > 0) {
                 console.log('📋 Sample requests:', data.slice(0, 3));
@@ -66,7 +55,6 @@ const AdminSuspensionRequestsPanel: React.FC = () => {
 
             setRequests(data || []);
         } catch (error: any) {
-            console.error('🚨 Error fetching suspension requests:', error);
             const errorMessage = error.message || error.toString();
             showNotification(`خطا در دریافت درخواست‌ها: ${errorMessage}`, 'error');
         } finally {
@@ -76,7 +64,6 @@ const AdminSuspensionRequestsPanel: React.FC = () => {
 
     // Refresh data when component mounts
     useEffect(() => {
-        console.log('🔄 AdminSuspensionRequestsPanel mounted, fetching requests...');
         fetchRequests();
     }, []);
 
@@ -119,7 +106,6 @@ const AdminSuspensionRequestsPanel: React.FC = () => {
             showNotification('درخواست تایید شد و کاربر از تعلیق خارج شد', 'success');
             fetchRequests();
         } catch (error) {
-            console.error('Error approving request:', error);
             showNotification('خطا در تایید درخواست', 'error');
         }
     };
@@ -152,7 +138,6 @@ const AdminSuspensionRequestsPanel: React.FC = () => {
             showNotification('درخواست رد شد', 'success');
             fetchRequests();
         } catch (error) {
-            console.error('Error rejecting request:', error);
             showNotification('خطا در رد درخواست', 'error');
         }
     };
@@ -181,7 +166,6 @@ const AdminSuspensionRequestsPanel: React.FC = () => {
 
     // Refresh data when component mounts
     useEffect(() => {
-        console.log('🔄 AdminSuspensionRequestsPanel mounted, fetching requests...');
         fetchRequests();
     }, []);
 
@@ -192,7 +176,6 @@ const AdminSuspensionRequestsPanel: React.FC = () => {
                 <div className="flex gap-2">
                     <button 
                         onClick={() => {
-                            console.log('🔄 Manual refresh triggered');
                             fetchRequests();
                         }}
                         className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 flex items-center gap-2"

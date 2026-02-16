@@ -1,7 +1,10 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { useCarriers } from '../contexts/CarriersContext';
 
 const Footer: React.FC = () => {
+  const { carriers } = useCarriers();
+  
   return (
     <footer className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
       <div className="container mx-auto px-6 py-12">
@@ -40,9 +43,16 @@ const Footer: React.FC = () => {
           <div>
             <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-4 tracking-wide">اپراتورها</h4>
             <ul className="space-y-3">
-              <li><Link to="/carrier/hamrah-aval" className="text-gray-600 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors">همراه اول</Link></li>
-              <li><Link to="/carrier/irancell" className="text-gray-600 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors">ایرانسل</Link></li>
-              <li><Link to="/carrier/raytel" className="text-gray-600 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors">رایتل</Link></li>
+              {carriers.map(carrier => (
+                <li key={carrier.id}>
+                  <Link 
+                    to={`/carrier/${carrier.name}`} 
+                    className="text-gray-600 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors"
+                  >
+                    {carrier.name_fa}
+                  </Link>
+                </li>
+              ))}
             </ul>
           </div>
           

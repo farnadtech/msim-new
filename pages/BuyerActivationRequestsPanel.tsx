@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useNotification } from '../contexts/NotificationContext';
 import { ActivationRequest } from '../types';
@@ -27,7 +27,6 @@ const BuyerActivationRequestsPanel: React.FC = () => {
             });
             setRequests(allRequests);
         } catch (error) {
-            console.error('Error loading activation requests:', error);
         } finally {
             setLoading(false);
         }

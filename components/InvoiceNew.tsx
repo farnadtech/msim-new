@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Commission, PurchaseOrder, SimCard, User } from '../types';
+import * as settingsService from '../services/settings-service';
 
 interface InvoiceProps {
     type: 'purchase' | 'sale' | 'commission';
@@ -20,6 +21,16 @@ const InvoiceNew: React.FC<InvoiceProps> = ({
     invoiceNumber,
     onClose
 }) => {
+    const [companyStampUrl, setCompanyStampUrl] = useState<string>('');
+    
+    useEffect(() => {
+        const loadStamp = async () => {
+            const url = await settingsService.getCompanyStampUrl();
+            setCompanyStampUrl(url);
+        };
+        loadStamp();
+    }, []);
+    
     const formatPrice = (price: number) => price.toLocaleString('fa-IR');
     
     const formatDate = (dateString: string) => {
@@ -46,21 +57,21 @@ const InvoiceNew: React.FC<InvoiceProps> = ({
     const commission = 'sale_price' in data ? data : null;
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 print:p-0 print:bg-white">
-            <div className="bg-white rounded-lg shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto print:max-w-full print:shadow-none print:max-h-full">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 print:p-0 print:bg-white print:block">
+            <div className="bg-white rounded-lg shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto print:max-w-full print:shadow-none print:max-h-full print:overflow-visible">
                 {/* Header - No Print */}
                 <div className="flex justify-between items-center p-6 border-b print:hidden">
                     <h2 className="text-2xl font-bold">{getInvoiceTitle()}</h2>
                     <div className="flex gap-2">
                         <button
                             onClick={handlePrint}
-                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 print:hidden"
                         >
                             🖨️ چاپ
                         </button>
                         <button
                             onClick={onClose}
-                            className="bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400"
+                            className="bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400 print:hidden"
                         >
                             بستن
                         </button>
@@ -296,8 +307,21 @@ const InvoiceNew: React.FC<InvoiceProps> = ({
                             </p>
                         </div>
                         <div className="text-center">
-                            <div className="h-20 border-b-2 border-gray-400 mb-2"></div>
-                            <p className="text-sm font-semibold text-gray-600">مهر و امضای سیم کارت 724</p>
+                            {companyStampUrl ? (
+                                <div className="flex flex-col items-center">
+                                    <img 
+                                        src={companyStampUrl} 
+                                        alt="مهر شرکت" 
+                                        className="h-20 w-auto object-contain mb-2"
+                                    />
+                                    <p className="text-sm font-semibold text-gray-600">مهر و امضای سیم کارت 724</p>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="h-20 border-b-2 border-gray-400 mb-2"></div>
+                                    <p className="text-sm font-semibold text-gray-600">مهر و امضای سیم کارت 724</p>
+                                </>
+                            )}
                         </div>
                     </div>
 

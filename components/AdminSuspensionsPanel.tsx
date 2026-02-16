@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../services/supabase';
 import { User } from '../types';
 import { useNotification } from '../contexts/NotificationContext';
@@ -40,7 +40,6 @@ const AdminSuspensionsPanel: React.FC = () => {
 
             setUsers(filteredData);
         } catch (error) {
-            console.error('Error fetching users:', error);
             showNotification('خطا در دریافت لیست کاربران', 'error');
         } finally {
             setLoading(false);
@@ -78,7 +77,6 @@ const AdminSuspensionsPanel: React.FC = () => {
             showNotification('کاربر با موفقیت تعلیق شد', 'success');
             fetchUsers();
         } catch (error) {
-            console.error('Error suspending user:', error);
             showNotification('خطا در تعلیق کاربر', 'error');
         }
     };
@@ -109,7 +107,6 @@ const AdminSuspensionsPanel: React.FC = () => {
             showNotification('تعلیق کاربر با موفقیت رفع شد', 'success');
             fetchUsers();
         } catch (error) {
-            console.error('Error unsuspending user:', error);
             showNotification('خطا در رفع تعلیق کاربر', 'error');
         }
     };
@@ -131,7 +128,6 @@ const AdminSuspensionsPanel: React.FC = () => {
             showNotification('امتیاز منفی با موفقیت صفر شد', 'success');
             fetchUsers();
         } catch (error) {
-            console.error('Error resetting negative score:', error);
             showNotification('خطا در صفر کردن امتیاز منفی', 'error');
         }
     };

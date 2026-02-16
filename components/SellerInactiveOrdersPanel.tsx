@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import api from '../services/api-supabase';
 import { PurchaseOrder, SupportMessage } from '../types';
 import { useNotification } from '../contexts/NotificationContext';
@@ -12,6 +12,7 @@ const SellerInactiveOrdersPanel: React.FC<SellerInactiveOrdersPanelProps> = ({ u
     const [orders, setOrders] = useState<PurchaseOrder[]>([]);
     const [loading, setLoading] = useState(true);
     const [codeInput, setCodeInput] = useState<{[key: number]: string}>({});
+    const [activationRequests, setActivationRequests] = useState<{[key: number]: any}>({});
     const [messages, setMessages] = useState<{[key: number]: SupportMessage[]}>({});
     const [showMessages, setShowMessages] = useState<{[key: number]: boolean}>({});
     const [replyMessage, setReplyMessage] = useState<{[key: number]: string}>({});
@@ -23,12 +24,18 @@ const SellerInactiveOrdersPanel: React.FC<SellerInactiveOrdersPanelProps> = ({ u
 
     const loadOrders = async () => {
         try {
-            console.log('🔍 Loading orders for seller:', userId);
             const sellerOrders = await api.getPurchaseOrders(userId, 'seller');
-            console.log('📦 All seller orders:', sellerOrders);
             const inactiveOrders = sellerOrders.filter((o: PurchaseOrder) => o.line_type === 'inactive');
-            console.log('📱 Inactive orders:', inactiveOrders);
             setOrders(inactiveOrders);
+            
+            // بارگذاری activation requests برای هر سفارش
+            for (const order of inactiveOrders) {
+                const activationReqs = await api.getActivationRequests({ sellerId: userId });
+                const request = activationReqs.find(r => r.purchase_order_id === order.id);
+                if (request) {
+                    setActivationRequests(prev => ({...prev, [order.id]: request}));
+                }
+            }
             
             // بارگذاری پیام‌ها برای سفارشات pending (که ممکن است گزارش مشکل داشته باشند)
             for (const order of inactiveOrders) {
@@ -37,7 +44,6 @@ const SellerInactiveOrdersPanel: React.FC<SellerInactiveOrdersPanelProps> = ({ u
                 }
             }
         } catch (error) {
-            console.error('❌ Error loading orders:', error);
             showNotification('خطا در بارگذاری سفارشات', 'error');
         } finally {
             setLoading(false);
@@ -52,25 +58,19 @@ const SellerInactiveOrdersPanel: React.FC<SellerInactiveOrdersPanelProps> = ({ u
         }
 
         try {
-            console.log('📄 Looking for activation request for order:', orderId);
             // Get the activation request for this order (seller's orders only)
             const activationRequests = await api.getActivationRequests({ sellerId: userId });
-            console.log('📄 Seller activation requests:', activationRequests);
             const request = activationRequests.find(r => r.purchase_order_id === orderId);
             
             if (!request) {
-                console.error('❌ No activation request found for order:', orderId);
                 showNotification('درخواست فعال‌سازی يافت نشد', 'error');
                 return;
             }
-            
-            console.log('📄 Found activation request:', request);
             await api.sendActivationCodeForZeroLine(request.id, code);
             showNotification('کد فعالسازی برای خریدار ارسال شد', 'success');
             setCodeInput({...codeInput, [orderId]: ''});
             loadOrders();
         } catch (error) {
-            console.error('❌ Error sending code:', error);
             showNotification(
                 error instanceof Error ? error.message : 'خطا در ارسال کد',
                 'error'
@@ -83,7 +83,6 @@ const SellerInactiveOrdersPanel: React.FC<SellerInactiveOrdersPanelProps> = ({ u
             const msgs = await api.getSupportMessages(orderId);
             setMessages({...messages, [orderId]: msgs});
         } catch (error) {
-            console.error('Error loading messages:', error);
         }
     };
 
@@ -175,51 +174,77 @@ const SellerInactiveOrdersPanel: React.FC<SellerInactiveOrdersPanelProps> = ({ u
                             </div>
                         )}
 
-                        {/* فروشنده کد را وارد می‌کند */}
+                        {/* فروشنده کد را وارد می‌کند - فقط اگر کد ارسال نشده یا رد شده */}
                         {order.status === 'pending' && (
                             <>
-                                {/* نمایش گزارش مشکل اگر وجود دارد */}
-                                {messages[order.id] && messages[order.id].some(m => m.message_type === 'problem_report') && (
-                                    <div className="bg-red-50 dark:bg-red-900/20 border-r-4 border-red-500 p-4 mb-4 rounded">
-                                        <p className="font-semibold text-red-800 dark:text-red-300 mb-2">⚠️ خریدار گزارش مشکل داده است:</p>
-                                        {messages[order.id]
-                                            .filter(m => m.message_type === 'problem_report')
-                                            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) // مرتب‌سازی از جدید به قدیم
-                                            .slice(0, 1) // فقط آخرین (جدیدترین) گزارش
-                                            .map((msg) => (
-                                                <div key={msg.id} className="bg-red-100 dark:bg-red-900/30 p-3 rounded">
-                                                    <p className="text-sm text-red-900 dark:text-red-200">{msg.message}</p>
-                                                    <p className="text-xs text-red-700 dark:text-red-400 mt-1">
-                                                        {new Date(msg.created_at).toLocaleString('fa-IR')}
-                                                    </p>
-                                                </div>
-                                            ))}
-                                        <p className="text-sm text-red-700 dark:text-red-400 mt-2">
-                                            کد قبلی پاک شده است. لطفاً کد جدید ارسال کنید.
+                                {/* بررسی اینکه آیا کد قبلاً ارسال شده و در حال بررسی است */}
+                                {activationRequests[order.id]?.activation_code && 
+                                 activationRequests[order.id]?.status === 'pending' ? (
+                                    <div className="bg-yellow-50 dark:bg-yellow-900/20 border-r-4 border-yellow-500 p-4 mb-4 rounded">
+                                        <p className="font-semibold text-yellow-800 dark:text-yellow-300 mb-2">⏳ کد در حال بررسی توسط ادمین</p>
+                                        <p className="text-sm text-yellow-700 dark:text-yellow-400">
+                                            کد فعال‌سازی ارسال شده و در حال بررسی توسط ادمین است. لطفاً منتظر بمانید.
                                         </p>
+                                        <div className="mt-3 bg-yellow-100 dark:bg-yellow-900/30 p-3 rounded">
+                                            <p className="text-xs text-yellow-800 dark:text-yellow-300">
+                                                کد ارسالی: <span className="font-mono font-bold">{activationRequests[order.id]?.activation_code}</span>
+                                            </p>
+                                        </div>
                                     </div>
+                                ) : (
+                                    <>
+                                        {/* نمایش گزارش مشکل اگر وجود دارد */}
+                                        {messages[order.id] && messages[order.id].some(m => m.message_type === 'problem_report') && (
+                                            <div className="bg-red-50 dark:bg-red-900/20 border-r-4 border-red-500 p-4 mb-4 rounded">
+                                                <p className="font-semibold text-red-800 dark:text-red-300 mb-2">⚠️ خریدار گزارش مشکل داده است:</p>
+                                                {messages[order.id]
+                                                    .filter(m => m.message_type === 'problem_report')
+                                                    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                                                    .slice(0, 1)
+                                                    .map((msg) => (
+                                                        <div key={msg.id} className="bg-red-100 dark:bg-red-900/30 p-3 rounded">
+                                                            <p className="text-sm text-red-900 dark:text-red-200">{msg.message}</p>
+                                                            <p className="text-xs text-red-700 dark:text-red-400 mt-1">
+                                                                {new Date(msg.created_at).toLocaleString('fa-IR')}
+                                                            </p>
+                                                        </div>
+                                                    ))}
+                                                <p className="text-sm text-red-700 dark:text-red-400 mt-2">
+                                                    کد قبلی پاک شده است. لطفاً کد جدید ارسال کنید.
+                                                </p>
+                                            </div>
+                                        )}
+                                        
+                                        <div className="border-t pt-4 mt-4">
+                                            <h5 className="font-semibold mb-3">🔐 وارد کردن کد فعالسازی برای خریدار</h5>
+                                            <p className="text-sm text-gray-600 mb-2">کد 6 رقمی را وارد کنید تا برای خریدار نمایش داده شود</p>
+                                            <div className="flex gap-2">
+                                                <input
+                                                    type="text"
+                                                    placeholder="کد 6 رقمی"
+                                                    value={codeInput[order.id] || ''}
+                                                    onChange={(e) => setCodeInput({...codeInput, [order.id]: e.target.value})}
+                                                    maxLength={6}
+                                                    className="flex-1 px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
+                                                />
+                                                <button
+                                                    onClick={() => handleSendCode(order.id)}
+                                                    className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 font-semibold"
+                                                >
+                                                    📤 ارسال کد
+                                                </button>
+                                            </div>
+                                        </div>
+                                        
+                                        {codeInput[order.id] && codeInput[order.id].length === 6 && (
+                                            <div className="bg-yellow-50 dark:bg-yellow-900/20 border-r-4 border-yellow-500 p-4 mt-4 rounded">
+                                                <p className="text-sm text-yellow-800 dark:text-yellow-300">
+                                                    💡 برای سفارشات با تحویل فیزیکی، کد ابتدا توسط ادمین بررسی می‌شود
+                                                </p>
+                                            </div>
+                                        )}
+                                    </>
                                 )}
-                                
-                                <div className="border-t pt-4 mt-4">
-                                    <h5 className="font-semibold mb-3">🔐 وارد کردن کد فعالسازی برای خریدار</h5>
-                                    <p className="text-sm text-gray-600 mb-2">کد 6 رقمی را وارد کنید تا برای خریدار نمایش داده شود</p>
-                                    <div className="flex gap-2">
-                                        <input
-                                            type="text"
-                                            placeholder="کد 6 رقمی"
-                                            value={codeInput[order.id] || ''}
-                                            onChange={(e) => setCodeInput({...codeInput, [order.id]: e.target.value})}
-                                            maxLength={6}
-                                            className="flex-1 px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
-                                        />
-                                        <button
-                                            onClick={() => handleSendCode(order.id)}
-                                            className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 font-semibold"
-                                        >
-                                            📤 ارسال کد
-                                        </button>
-                                    </div>
-                                </div>
                             </>
                         )}
 

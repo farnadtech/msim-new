@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../services/api-supabase';
 import { useNotification } from '../contexts/NotificationContext';
@@ -16,7 +16,6 @@ const ZibalCallbackPage: React.FC = () => {
     useEffect(() => {
         // جلوگیری از اجرای چندباره
         if (hasRun) {
-            console.log('⏭️ Verification already running, skipping...');
             return;
         }
 
@@ -28,9 +27,6 @@ const ZibalCallbackPage: React.FC = () => {
                 const trackId = searchParams.get('trackId');
                 const success = searchParams.get('success');
                 const status = searchParams.get('status');
-
-                console.log('🔍 Zibal callback params:', { trackId, success, status });
-
                 if (!trackId) {
                     throw new Error('اطلاعات پرداخت ناقص است');
                 }
@@ -45,18 +41,12 @@ const ZibalCallbackPage: React.FC = () => {
                     setTimeout(() => navigate(redirectPath), 3000);
                     return;
                 }
-
-                console.log('✅ Initial validation passed, verifying with server...');
-
                 // تایید پرداخت با سرور
                 const result = await api.verifyZibalPayment(
                     parseInt(trackId),
                     parseInt(success),
                     parseInt(status)
                 );
-
-                console.log('✅ Server verification result:', result);
-
                 if (result.success) {
                     setMessage('پرداخت با موفقیت انجام شد!');
                     // مبلغ از زیبال به ریال برمی‌گردد، باید به تومان تبدیل شود
@@ -72,7 +62,6 @@ const ZibalCallbackPage: React.FC = () => {
                     throw new Error('تایید پرداخت ناموفق بود');
                 }
             } catch (error) {
-                console.error('❌ Payment verification error:', error);
                 const errorMessage = error instanceof Error ? error.message : 'خطا در تایید پرداخت';
                 setMessage(errorMessage);
                 showNotification(errorMessage, 'error');

@@ -1,16 +1,20 @@
-import React, { useState, useEffect, useMemo } from 'react';
+﻿import React, { useState, useEffect, useMemo } from 'react';
 import { useData } from '../hooks/useData';
 import DashboardLayout from '../components/DashboardLayout';
 import AdminAuctionParticipantsPanel from '../components/AdminAuctionParticipantsPanel';
 import { SimCard } from '../types';
 import { supabase } from '../services/supabase';
+import { useNotification } from '../contexts/NotificationContext';
+import api from '../services/api-supabase';
 
 const AdminAuctionManagement: React.FC = () => {
-    const { simCards, loading } = useData();
+    const { simCards, loading, removeSimCard } = useData();
+    const { showNotification } = useNotification();
     const [selectedAuction, setSelectedAuction] = useState<SimCard | null>(null);
     const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'ended'>('all');
     const [auctionIds, setAuctionIds] = useState<Map<number, number>>(new Map());
     const [loadingAuctionIds, setLoadingAuctionIds] = useState(true);
+    const [deleting, setDeleting] = useState<number | null>(null);
 
     // Get all auction SIM cards - use useMemo to prevent recalculation
     const auctionSims = useMemo(() => 
@@ -21,15 +25,12 @@ const AdminAuctionManagement: React.FC = () => {
     // Fetch auction_details IDs - only when auctionSims changes
     useEffect(() => {
         const fetchAuctionIds = async () => {
-            console.log('🔄 Fetching auction IDs for', auctionSims.length, 'auction SIMs');
             setLoadingAuctionIds(true);
             const idMap = new Map<number, number>();
             
             if (auctionSims.length > 0) {
                 // Get all unique sim card IDs
                 const auctionSimIds = [...new Set(auctionSims.map(sim => sim.id))];
-                console.log('🔍 Auction SIM IDs to fetch:', auctionSimIds);
-                
                 const { data: auctionDetails, error: auctionError } = await supabase
                     .from('auction_details')
                     .select('id, sim_card_id')
@@ -38,11 +39,8 @@ const AdminAuctionManagement: React.FC = () => {
                 if (!auctionError && auctionDetails) {
                     auctionDetails.forEach(detail => {
                         idMap.set(detail.sim_card_id, detail.id);
-                        console.log(`✅ Mapped SIM ${detail.sim_card_id} to Auction ${detail.id}`);
                     });
-                    console.log('✅ Successfully fetched', auctionDetails.length, 'auction IDs');
                 } else if (auctionError) {
-                    console.error('❌ Error fetching auction IDs:', auctionError);
                 }
             }
             
@@ -57,6 +55,30 @@ const AdminAuctionManagement: React.FC = () => {
             setLoadingAuctionIds(false);
         }
     }, [auctionSims.length, loading]); // Use auctionSims.length to avoid infinite loops
+
+    const handleDeleteAuction = async (sim: SimCard, e: React.MouseEvent) => {
+        e.stopPropagation(); // Prevent selecting the auction
+        
+        if (!window.confirm(`آیا مطمئن هستید که می‌خواهید حراجی ${sim.number} را به طور کامل حذف کنید؟\n\nتوجه: این عمل غیرقابل بازگشت است و تمام پیشنهادات و اطلاعات مرتبط نیز حذف خواهند شد.`)) {
+            return;
+        }
+
+        try {
+            setDeleting(sim.id);
+            await api.deleteSimCard(sim.id, true); // true = isAdmin
+            removeSimCard(sim.id);
+            
+            if (selectedAuction?.id === sim.id) {
+                setSelectedAuction(null);
+            }
+            
+            showNotification('حراجی با موفقیت حذف شد', 'success');
+        } catch (error: any) {
+            showNotification(error.message || 'خطا در حذف حراجی', 'error');
+        } finally {
+            setDeleting(null);
+        }
+    };
 
     // Filter based on status
     const filteredAuctions = auctionSims.filter(sim => {
@@ -117,7 +139,6 @@ const AdminAuctionManagement: React.FC = () => {
                                     <div
                                         key={sim.id}
                                         onClick={() => {
-                                            console.log('🎯 Selected auction:', sim.id, 'Auction ID:', auctionId);
                                             setSelectedAuction(sim);
                                         }}
                                         className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
@@ -135,7 +156,7 @@ const AdminAuctionManagement: React.FC = () => {
                                                     {sim.carrier} | {sim.is_active ? '✅ فعال' : '❌ صفر'}
                                                 </p>
                                             </div>
-                                            <div className="text-right">
+                                            <div className="flex items-center gap-2">
                                                 <span className={`px-3 py-1 text-sm rounded-full ${
                                                     isAuctionEnded
                                                         ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
@@ -143,6 +164,14 @@ const AdminAuctionManagement: React.FC = () => {
                                                 }`}>
                                                     {isAuctionEnded ? 'پایان یافته' : 'فعال'}
                                                 </span>
+                                                <button
+                                                    onClick={(e) => handleDeleteAuction(sim, e)}
+                                                    disabled={deleting === sim.id}
+                                                    className="bg-red-600 text-white px-3 py-1 rounded-md hover:bg-red-700 text-sm disabled:bg-gray-400 transition-colors"
+                                                    title="حذف حراجی"
+                                                >
+                                                    {deleting === sim.id ? '⏳' : '🗑️'}
+                                                </button>
                                             </div>
                                         </div>
                                         
@@ -171,10 +200,26 @@ const AdminAuctionManagement: React.FC = () => {
                     )}
                 </div>
 
-                {/* Selected Auction Details */}
+                {/* Selected Auction Details - Modal */}
                 {selectedAuction && auctionIds.get(selectedAuction.id) && (
-                    <div key={`auction-panel-${selectedAuction.id}`}>
-                        <AdminAuctionParticipantsPanel auctionId={auctionIds.get(selectedAuction.id)!} />
+                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+                            {/* Modal Header */}
+                            <div className="sticky top-0 bg-white dark:bg-gray-800 border-b dark:border-gray-700 p-4 flex justify-between items-center">
+                                <h3 className="text-xl font-bold">🏆 شرکت‌کنندگان حراجی {selectedAuction.number}</h3>
+                                <button
+                                    onClick={() => setSelectedAuction(null)}
+                                    className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-2xl"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                            
+                            {/* Modal Content */}
+                            <div className="p-6">
+                                <AdminAuctionParticipantsPanel auctionId={auctionIds.get(selectedAuction.id)!} />
+                            </div>
+                        </div>
                     </div>
                 )}
                 

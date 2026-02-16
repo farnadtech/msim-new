@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+﻿import { supabase } from './supabase';
 import { SiteSetting } from '../types';
 
 // Cache for settings to avoid repeated database calls
@@ -16,7 +16,6 @@ export const getAllSettings = async (): Promise<SiteSetting[]> => {
         .order('category', { ascending: true });
     
     if (error) {
-        console.error('Error fetching settings:', error);
         throw error;
     }
     
@@ -40,7 +39,6 @@ export const getSetting = async (key: string, defaultValue?: string): Promise<st
         .single();
     
     if (error || !data) {
-        console.warn(`Setting not found: ${key}, using default: ${defaultValue}`);
         return defaultValue || '';
     }
     
@@ -80,7 +78,6 @@ export const getAllSettingsAsObject = async (forceRefresh: boolean = false): Pro
         .select('setting_key, setting_value');
     
     if (error) {
-        console.error('Error fetching settings:', error);
         return settingsCache || {};
     }
     
@@ -110,7 +107,6 @@ export const updateSetting = async (key: string, value: string, userId: string):
         .eq('setting_key', key);
     
     if (error) {
-        console.error('Error updating setting:', error);
         throw error;
     }
     
@@ -303,4 +299,41 @@ export const getPaymentGatewayConfig = async (gateway: 'zarinpal' | 'zibal'): Pr
         ]);
         return { enabled, merchantId, sandbox };
     }
+};
+
+/**
+ * Get company stamp URL
+ */
+export const getCompanyStampUrl = async (): Promise<string> => {
+    return await getSetting('company_stamp_url', '');
+};
+
+// --- SMS Pattern Settings ---
+
+/**
+ * Get SMS pattern for login OTP
+ */
+export const getSmsPatternLoginOtp = async (): Promise<string> => {
+    return await getSetting('sms_pattern_login_otp', 'کد ورود شما: {code}');
+};
+
+/**
+ * Get SMS pattern for SIM verification
+ */
+export const getSmsPatternSimVerification = async (): Promise<string> => {
+    return await getSetting('sms_pattern_sim_verification', 'کد احراز هویت خط: {code}');
+};
+
+/**
+ * Get SMS pattern for activation code
+ */
+export const getSmsPatternActivationCode = async (): Promise<string> => {
+    return await getSetting('sms_pattern_activation_code', 'کد فعال‌سازی خط: {code}');
+};
+
+/**
+ * Format SMS message with pattern
+ */
+export const formatSmsMessage = (pattern: string, code: string): string => {
+    return pattern.replace('{code}', code);
 };

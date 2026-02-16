@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { NavLink } from 'react-router-dom';
 import DashboardLayout from '../components/DashboardLayout';
@@ -63,7 +63,6 @@ const InvoicesPageNew: React.FC = () => {
                 setCommissions(commissionsData);
             }
         } catch (error) {
-            console.error('Error loading data:', error);
             showNotification('خطا در بارگذاری اطلاعات', 'error');
         } finally {
             setLoading(false);

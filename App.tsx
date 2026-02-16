@@ -3,6 +3,7 @@ import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-d
 import { AuthProvider } from './contexts/AuthContext-supabase';
 import { DataProvider } from './contexts/DataContext';
 import { NotificationProvider } from './contexts/NotificationContext';
+import { CarriersProvider } from './contexts/CarriersContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import useAuctionProcessor from './hooks/useAuctionProcessor';
 import useAuctionPaymentChecker from './hooks/useAuctionPaymentChecker';
@@ -135,9 +136,11 @@ const App: React.FC = () => {
       <ThemeProvider>
         <AuthProvider>
           <NotificationProvider>
-            <DataProvider>
-              <AppContent />
-            </DataProvider>
+            <CarriersProvider>
+              <DataProvider>
+                <AppContent />
+              </DataProvider>
+            </CarriersProvider>
           </NotificationProvider>
         </AuthProvider>
       </ThemeProvider>

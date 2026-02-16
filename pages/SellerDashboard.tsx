@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 // FIX: Upgrading react-router-dom from v5 to v6.
 import { NavLink, Route, Routes, useNavigate } from 'react-router-dom';
 import DashboardLayout from '../components/DashboardLayout';
@@ -7,8 +7,10 @@ import SecurePaymentsDisplay from '../components/SecurePaymentsDisplay';
 import SellerInactiveOrdersPanel from '../components/SellerInactiveOrdersPanel';
 import SellerActiveOrdersPanel from '../components/SellerActiveOrdersPanel';
 import CountdownTimer from '../components/CountdownTimer';
+import PersianDatePicker from '../components/PersianDatePicker';
 import { useAuth } from '../hooks/useAuth';
 import { useData } from '../hooks/useData';
+import { useCarriers } from '../contexts/CarriersContext';
 import { SimCard, Package, SimCardTypeOption } from '../types';
 import { useNotification } from '../contexts/NotificationContext';
 import api, { PaymentReceipt } from '../services/api-supabase';
@@ -169,7 +171,7 @@ const MySimCards = () => {
                             <th className="p-3">نوع</th>
                             <th className="p-3">وضعیت</th>
                             <th className="p-3">فعالیت</th>
-                            <th className="p-3">زمان باقی‌مانده</th>
+                            <th className="p-3">زمان باقی‌مانده تا حذف آگهی</th>
                             <th className="p-3">عملیات</th>
                         </tr>
                     </thead>
@@ -343,7 +345,6 @@ const SellerWallet = ({ onTransaction }: { onTransaction: (amount: number, type:
                     }
                 }
             } catch (error) {
-                console.error('Error loading payment gateways:', error);
             }
         };
         
@@ -401,7 +402,6 @@ const SellerWallet = ({ onTransaction }: { onTransaction: (amount: number, type:
                             try {
                                 receiptImageUrl = await api.uploadReceiptImage(receiptImage, user!.id);
                             } catch (error) {
-                                console.error('Receipt image upload failed:', error);
                                 showNotification(`خطا در آپلود تصویر رسید: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
                                 setIsLoading(false);
                                 return;
@@ -628,12 +628,13 @@ const SellerWallet = ({ onTransaction }: { onTransaction: (amount: number, type:
 const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller_id' | 'status'>) => Promise<void> }) => {
     const { user } = useAuth();
     const { showNotification } = useNotification();
+    const { carriers } = useCarriers();
     const [saleType, setSaleType] = useState<SimCardTypeOption>('fixed');
     const [minAuctionPrice, setMinAuctionPrice] = useState(1000000);
     const [rondPrices, setRondPrices] = useState<{ [key in 1 | 2 | 3 | 4 | 5]: number }>({1: 5000, 2: 10000, 3: 15000, 4: 20000, 5: 25000});
     const [simData, setSimData] = useState({
         number: '',
-        carrier: 'همراه اول',
+        carrier: carriers.length > 0 ? carriers[0].name_fa : 'همراه اول',
         price: '',
         is_rond: false,
         rond_level: 1 as 1 | 2 | 3 | 4 | 5,
@@ -643,6 +644,17 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
         is_active: true,
     });
     const [isLoading, setIsLoading] = useState(false);
+    const [showVerificationModal, setShowVerificationModal] = useState(false);
+    const [verificationCode, setVerificationCode] = useState('');
+    const [isVerifying, setIsVerifying] = useState(false);
+    const [isSendingCode, setIsSendingCode] = useState(false);
+
+    // Update default carrier when carriers load
+    React.useEffect(() => {
+        if (carriers.length > 0 && !simData.carrier) {
+            setSimData(prev => ({ ...prev, carrier: carriers[0].name_fa }));
+        }
+    }, [carriers]);
 
     // Load settings on component mount
     React.useEffect(() => {
@@ -655,7 +667,6 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
                 const prices = await settingsService.getAllRondPrices();
                 setRondPrices(prices as { [key in 1 | 2 | 3 | 4 | 5]: number });
             } catch (error) {
-                console.error('Error loading settings:', error);
                 // Fall back to defaults
                 setRondPrices({1: 5000, 2: 10000, 3: 15000, 4: 20000, 5: 25000});
             }
@@ -707,6 +718,59 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
             return;
         }
         
+        // اگر خط فعال است، احراز پیامکی الزامی است
+        if (simData.is_active) {
+            setShowVerificationModal(true);
+            return; // توقف اینجا - فقط با تایید کد ادامه می‌یابد
+        }
+        
+        // اگر خط غیرفعال است، مستقیماً ثبت می‌شود
+        await submitSimCard();
+    };
+    
+    const handleSendVerificationCode = async () => {
+        if (!user) return;
+        
+        setIsSendingCode(true);
+        try {
+            const result = await api.sendSimVerificationCode(simData.number, user.id);
+            if (result.success) {
+                showNotification(result.message, 'success');
+            } else {
+                showNotification(result.message, 'error');
+            }
+        } catch (error) {
+            showNotification('خطا در ارسال کد تایید', 'error');
+        } finally {
+            setIsSendingCode(false);
+        }
+    };
+    
+    const handleVerifyCode = async () => {
+        if (!user || !verificationCode) {
+            showNotification('لطفا کد تایید را وارد کنید', 'error');
+            return;
+        }
+        
+        setIsVerifying(true);
+        try {
+            const result = await api.verifySimVerificationCode(simData.number, user.id, verificationCode);
+            if (result.success) {
+                showNotification(result.message, 'success');
+                setShowVerificationModal(false);
+                // بعد از تایید، سیم‌کارت را ثبت کن
+                await submitSimCard();
+            } else {
+                showNotification(result.message, 'error');
+            }
+        } catch (error) {
+            showNotification('خطا در بررسی کد تایید', 'error');
+        } finally {
+            setIsVerifying(false);
+        }
+    };
+    
+    const submitSimCard = async () => {
         setIsLoading(true);
         
         // Prepare the data to send
@@ -759,6 +823,7 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
                 is_active: true, // Reset to default value
             });
             setSaleType('fixed');
+            setVerificationCode('');
         } catch (err) {
             // Error is caught and displayed by the parent component.
         } finally {
@@ -771,9 +836,9 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
     return (
         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
             <h2 className="text-2xl font-bold mb-6">ثبت سیمکارت جدید</h2>
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} className="space-y-8">
                  <fieldset disabled={isLoading}>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                         <div>
                             <label htmlFor="number" className="block mb-2 font-medium">شماره سیمکارت</label>
                             <input 
@@ -792,30 +857,49 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
                         <div>
                             <label htmlFor="carrier" className="block mb-2 font-medium">اپراتور</label>
                             <select name="carrier" id="carrier" value={simData.carrier} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600">
-                                <option>همراه اول</option>
-                                <option>ایرانسل</option>
-                                <option>رایتل</option>
+                                {carriers.length > 0 ? (
+                                    carriers.map(carrier => (
+                                        <option key={carrier.id} value={carrier.name_fa}>
+                                            {carrier.name_fa}
+                                        </option>
+                                    ))
+                                ) : (
+                                    <>
+                                        <option>همراه اول</option>
+                                        <option>ایرانسل</option>
+                                        <option>رایتل</option>
+                                    </>
+                                )}
                             </select>
                         </div>
                     </div>
 
-                    <div>
-                        <label className="block mb-2 font-medium">نوع فروش</label>
-                        <div className="flex items-center space-x-4 space-x-reverse">
-                            <label><input type="radio" value="fixed" checked={saleType === 'fixed'} onChange={() => setSaleType('fixed')} className="ml-2" /> قیمت مقطوع</label>
-                            <label><input type="radio" value="auction" checked={saleType === 'auction'} onChange={() => setSaleType('auction')} className="ml-2" /> حراجی</label>
-                             <label><input type="radio" value="inquiry" checked={saleType === 'inquiry'} onChange={() => setSaleType('inquiry')} className="ml-2" /> استعلام با تماس</label>
+                    <div className="mb-8">
+                        <label className="block mb-3 font-medium">نوع فروش</label>
+                        <div className="flex items-center space-x-6 space-x-reverse">
+                            <label className="flex items-center cursor-pointer">
+                                <input type="radio" value="fixed" checked={saleType === 'fixed'} onChange={() => setSaleType('fixed')} className="ml-2" /> 
+                                <span>قیمت مقطوع</span>
+                            </label>
+                            <label className="flex items-center cursor-pointer">
+                                <input type="radio" value="auction" checked={saleType === 'auction'} onChange={() => setSaleType('auction')} className="ml-2" /> 
+                                <span>حراجی</span>
+                            </label>
+                             <label className="flex items-center cursor-pointer">
+                                <input type="radio" value="inquiry" checked={saleType === 'inquiry'} onChange={() => setSaleType('inquiry')} className="ml-2" /> 
+                                <span>استعلام با تماس</span>
+                            </label>
                         </div>
                     </div>
 
                     {saleType === 'fixed' && (
-                        <div>
+                        <div className="mb-8">
                             <label htmlFor="price" className="block mb-2 font-medium">قیمت (تومان)</label>
                             <input type="number" name="price" id="price" value={simData.price} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600" />
                         </div>
                     )}
                     {saleType === 'auction' && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-4 border dark:border-gray-700 rounded-lg">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 border dark:border-gray-700 rounded-lg mb-8 bg-blue-50 dark:bg-blue-900/20">
                             <div>
                                 <label htmlFor="startingBid" className="block mb-2 font-medium">قیمت پایه (تومان)</label>
                                 <input type="number" name="startingBid" id="startingBid" value={simData.startingBid} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600" />
@@ -823,13 +907,27 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
                             </div>
                             <div>
                                 <label htmlFor="endTime" className="block mb-2 font-medium">زمان پایان حراجی</label>
-                                <input type="datetime-local" name="endTime" id="endTime" value={simData.endTime} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600" />
+                                <PersianDatePicker
+                                    value={simData.endTime ? new Date(simData.endTime) : null}
+                                    onChange={(date) => {
+                                        if (date) {
+                                            setSimData(prev => ({
+                                                ...prev,
+                                                endTime: date.toISOString()
+                                            }));
+                                        }
+                                    }}
+                                    placeholder="تاریخ و ساعت پایان حراجی را انتخاب کنید"
+                                    format="YYYY/MM/DD HH:mm"
+                                    minDate={new Date()}
+                                    required={true}
+                                />
                             </div>
                         </div>
                     )}
                     
                     {saleType === 'inquiry' && (
-                        <div className="space-y-4">
+                        <div className="space-y-4 mb-8">
                              <div className="p-4 bg-blue-50 dark:bg-blue-900/50 rounded-lg text-center">
                                 <p>در این حالت، قیمت نمایش داده نمی شود و خریداران برای اطلاع از قیمت با شماره ثبت شده شما تماس خواهند گرفت.</p>
                             </div>
@@ -850,7 +948,7 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
                        
                     )}
 
-                    <div>
+                    <div className="mb-8">
                         <div className="flex items-center">
                             <input 
                                 type="checkbox" 
@@ -864,15 +962,15 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
                             <label htmlFor="is_rond" className={`font-medium ${(user.wallet_balance || 0) < rondPrices[simData.rond_level] ? 'text-gray-400' : ''}`}>شماره رند است</label>
                         </div>
                         {simData.is_rond && (
-                            <div className="mt-3">
-                                <label className="block mb-2 font-medium">انتخاب سطح رند</label>
-                                <div className="grid grid-cols-5 gap-1 md:gap-2">
+                            <div className="mt-4">
+                                <label className="block mb-3 font-medium">انتخاب سطح رند</label>
+                                <div className="grid grid-cols-5 gap-2 md:gap-3">
                                     {([1, 2, 3, 4, 5] as const).map((level) => (
                                         <button
                                             key={level}
                                             type="button"
                                             onClick={() => setSimData(prev => ({ ...prev, rond_level: level }))}
-                                            className={`py-2 px-1 md:px-2 rounded-lg font-bold transition-colors text-xs md:text-sm ${
+                                            className={`py-3 px-2 md:px-3 rounded-lg font-bold transition-colors text-xs md:text-sm ${
                                                 simData.rond_level === level
                                                     ? 'bg-blue-600 text-white'
                                                     : 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
@@ -892,13 +990,13 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
                             </div>
                         )}
                         {!simData.is_rond && (
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                                 برای ثبت شماره به عنوان رند، باید این گزینه را انتخاب کنید و سطح رند را مشخص کنید.
                             </p>
                         )}
                     </div>
                     
-                    <div>
+                    <div className="mb-8 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                         <div className="flex items-center">
                             <input 
                                 type="checkbox" 
@@ -910,8 +1008,11 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
                             />
                             <label htmlFor="is_active" className="font-medium">شماره فعال است</label>
                         </div>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            در صورت عدم انتخاب، شماره به عنوان غیرفعال ثبت می‌شود.
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 mr-8">
+                            {simData.is_active 
+                                ? '⚠️ برای خطوط فعال، احراز هویت پیامکی الزامی است تا مطمئن شویم خط در اختیار شماست.'
+                                : 'برای خطوط غیرفعال (صفر)، بعد از فروش باید کد فعال‌سازی به خریدار ارائه دهید.'
+                            }
                         </p>
                     </div>
                 </fieldset>
@@ -922,6 +1023,60 @@ const AddSimCard = ({ onAddSim }: { onAddSim: (sim: Omit<SimCard, 'id' | 'seller
                     </button>
                 </div>
             </form>
+            
+            {/* مودال احراز پیامکی */}
+            {showVerificationModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md">
+                        <h3 className="text-xl font-bold mb-4">احراز هویت خط فعال</h3>
+                        <p className="mb-4 text-gray-600 dark:text-gray-300">
+                            برای اطمینان از اینکه خط فعال در اختیار شماست، لطفا کد تایید ارسال شده به شماره <span className="font-bold font-mono">{simData.number}</span> را وارد کنید.
+                        </p>
+                        
+                        <div className="mb-4">
+                            <button
+                                onClick={handleSendVerificationCode}
+                                disabled={isSendingCode}
+                                className="w-full bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:bg-gray-400 mb-3"
+                            >
+                                {isSendingCode ? 'در حال ارسال...' : '📱 ارسال کد تایید'}
+                            </button>
+                        </div>
+                        
+                        <div className="mb-4">
+                            <label className="block mb-2 font-medium">کد تایید (6 رقمی)</label>
+                            <input
+                                type="text"
+                                value={verificationCode}
+                                onChange={(e) => setVerificationCode(e.target.value)}
+                                maxLength={6}
+                                className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 text-center text-2xl tracking-widest"
+                                placeholder="------"
+                            />
+                        </div>
+                        
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => {
+                                    setShowVerificationModal(false);
+                                    setVerificationCode('');
+                                }}
+                                className="flex-1 bg-gray-300 dark:bg-gray-600 px-4 py-2 rounded-lg"
+                                disabled={isVerifying}
+                            >
+                                انصراف
+                            </button>
+                            <button
+                                onClick={handleVerifyCode}
+                                disabled={isVerifying || !verificationCode || verificationCode.length !== 6}
+                                className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+                            >
+                                {isVerifying ? 'در حال بررسی...' : '✓ تایید و ثبت'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -985,7 +1140,18 @@ const BuyPackage = ({ onBuyPackage }: { onBuyPackage: (pkg: Package) => Promise<
                     <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
                         <h3 className="text-xl font-bold mb-4">تایید خرید پکیج</h3>
                         <p className="mb-2">شما در حال خرید <span className="font-bold">{selectedPackage.name}</span> به قیمت <span className="font-bold">{selectedPackage.price.toLocaleString('fa-IR')} تومان</span> هستید.</p>
-                        <p className="mb-6">موجودی فعلی شما: <span className="font-bold">{(user.wallet_balance || 0).toLocaleString('fa-IR')} تومان</span></p>
+                        <p className="mb-4">موجودی فعلی شما: <span className="font-bold">{(user.wallet_balance || 0).toLocaleString('fa-IR')} تومان</span></p>
+
+                        {/* هشدار تغییر پکیج */}
+                        {user.package_id && user.package_id !== selectedPackage.id && (
+                            <div className="bg-yellow-100 dark:bg-yellow-900/50 border-r-4 border-yellow-500 text-yellow-800 dark:text-yellow-300 p-4 mb-4" role="alert">
+                                <p className="font-bold flex items-center gap-2">
+                                    <span>⚠️</span>
+                                    <span>توجه</span>
+                                </p>
+                                <p className="text-sm mt-1">با تغییر پکیج، پکیج فعلی شما باطل و پکیج جدید فعال خواهد شد.</p>
+                            </div>
+                        )}
 
                         {!hasSufficientFunds && (
                             <div className="bg-red-100 dark:bg-red-900/50 border-r-4 border-red-500 text-red-700 dark:text-red-300 p-4 mb-4" role="alert">
@@ -1107,7 +1273,6 @@ const SellerDashboard: React.FC = () => {
                 try {
                     await processTransaction(user.id, pkg.price, 'sale', `برگشت خرید پکیج ${pkg.name} به دلیل خطا`);
                 } catch (reverseError) {
-                    console.error('Error reversing transaction:', reverseError);
                 }
                 showNotification(error.message, 'error');
             } else {
