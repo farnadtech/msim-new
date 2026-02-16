@@ -3,6 +3,7 @@ import { ZARINPAL_CONFIG } from '../config/zarinpal';
 import * as settingsService from './settings-service';
 import * as smsService from './sms-service';
 import { supabase } from './supabase';
+import { createZibalPayment as zibalRequest, verifyZibalPayment as zibalVerify } from './zibal-service';
 
 // Function to remove undefined properties from an object
 const removeUndefinedProps = (obj: any) => {
@@ -1609,8 +1610,6 @@ export const createZibalPayment = async (
   amount: number
 ): Promise<{ paymentUrl: string; trackId: number }> => {
   try {
-    const { createZibalPayment: zibalRequest } = await import('./zibal-service');
-    
     // Create a payment receipt first
     const receiptId = await createPaymentReceipt({
       user_id: userId,
@@ -1705,7 +1704,6 @@ export const verifyZibalPayment = async (
     }
 
     // تایید پرداخت با سرور زیبال
-    const { verifyZibalPayment: zibalVerify } = await import('./zibal-service');
     const verifyResult = await zibalVerify({ trackId });
 
     console.log('📥 Zibal verify result:', verifyResult);
