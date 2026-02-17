@@ -4,6 +4,87 @@ import { useAuth } from '../hooks/useAuth';
 import { ActivationRequest } from '../types';
 import api from '../services/api-supabase';
 
+// کامپوننت نمایش عکس‌های KYC خریدار
+const BuyerKYCImages: React.FC<{ buyerId: string }> = ({ buyerId }) => {
+    const [kycData, setKycData] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        loadKYC();
+    }, [buyerId]);
+
+    const loadKYC = async () => {
+        try {
+            const data = await api.getKYCVerification(buyerId);
+            setKycData(data);
+        } catch (error) {
+            console.error('خطا در بارگذاری KYC:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    if (loading) {
+        return <div className="mb-6 text-center text-gray-500">در حال بارگذاری اطلاعات احراز هویت...</div>;
+    }
+
+    if (!kycData) {
+        return (
+            <div className="mb-6 bg-yellow-50 dark:bg-yellow-900/30 p-4 rounded-lg border border-yellow-200 dark:border-yellow-700">
+                <p className="text-yellow-800 dark:text-yellow-300">⚠️ خریدار هنوز مدارک احراز هویت خود را ارسال نکرده است.</p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="mb-6 bg-purple-50 dark:bg-purple-900/30 p-4 rounded-lg border border-purple-200 dark:border-purple-700">
+            <h4 className="font-bold mb-3 text-purple-800 dark:text-purple-300">
+                🆔 مدارک احراز هویت خریدار
+                {kycData.status === 'verified' && <span className="text-green-600 text-sm mr-2">✓ تایید شده</span>}
+                {kycData.status === 'pending' && <span className="text-yellow-600 text-sm mr-2">⏳ در انتظار تایید</span>}
+                {kycData.status === 'rejected' && <span className="text-red-600 text-sm mr-2">✗ رد شده</span>}
+            </h4>
+            <div className="grid grid-cols-2 gap-4">
+                {kycData.national_card_front_url && (
+                    <div>
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">روی کارت ملی</p>
+                        <a 
+                            href={kycData.national_card_front_url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="block"
+                        >
+                            <img 
+                                src={kycData.national_card_front_url} 
+                                alt="روی کارت ملی" 
+                                className="w-full h-48 object-cover rounded-lg border-2 border-purple-300 hover:border-purple-500 transition-colors cursor-pointer"
+                            />
+                        </a>
+                    </div>
+                )}
+                {kycData.national_card_back_url && (
+                    <div>
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">پشت کارت ملی</p>
+                        <a 
+                            href={kycData.national_card_back_url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="block"
+                        >
+                            <img 
+                                src={kycData.national_card_back_url} 
+                                alt="پشت کارت ملی" 
+                                className="w-full h-48 object-cover rounded-lg border-2 border-purple-300 hover:border-purple-500 transition-colors cursor-pointer"
+                            />
+                        </a>
+                    </div>
+                )}
+            </div>
+            <p className="text-xs text-gray-500 mt-2">💡 برای مشاهده تصویر بزرگتر، روی عکس کلیک کنید</p>
+        </div>
+    );
+};
+
 const AdminActivationRequestsPanel: React.FC = () => {
     const { user } = useAuth();
     const { showNotification } = useNotification();
@@ -236,6 +317,9 @@ const AdminActivationRequestsPanel: React.FC = () => {
                                 </div>
                             </div>
                         )}
+
+                        {/* عکس‌های احراز هویت خریدار */}
+                        <BuyerKYCImages buyerId={(selectedRequest as any).buyer_id} />
 
                         {/* اطلاعات تماس و آدرس خریدار */}
                         {(selectedRequest as any).delivery_method === 'physical_card' && (

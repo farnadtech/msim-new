@@ -10,12 +10,15 @@ const AdminVerificationPanel: React.FC = () => {
     const { user } = useAuth();
     const [orders, setOrders] = useState<PurchaseOrder[]>([]);
     const [loading, setLoading] = useState(true);
+    const [processing, setProcessing] = useState<{[key: number]: boolean}>({});
     const [documentUrl, setDocumentUrl] = useState<{[key: number]: string}>({});
     const [rejectDocReason, setRejectDocReason] = useState<{[key: number]: string}>({});
     const [rejectFinalReason, setRejectFinalReason] = useState<{[key: number]: string}>({});
     const [showRejectDocForm, setShowRejectDocForm] = useState<{[key: number]: boolean}>({});
     const [showRejectFinalForm, setShowRejectFinalForm] = useState<{[key: number]: boolean}>({});
     const [buyerInfo, setBuyerInfo] = useState<{[key: string]: {name: string, phone: string}}>({});
+    const [buyerKYC, setBuyerKYC] = useState<{[key: string]: {national_card_front_url: string, national_card_back_url: string}}>({}); 
+    const [sellerKYC, setSellerKYC] = useState<{[key: string]: {national_card_front_url: string, national_card_back_url: string}}>({});
     const { showNotification } = useNotification();
 
     useEffect(() => {
@@ -30,12 +33,14 @@ const AdminVerificationPanel: React.FC = () => {
             // 1. سفارشات در مرحله تایید مدارک (document_submitted)
             // 2. سفارشات در مرحله تایید نهایی (verified)
             const pendingOrders = allOrders.filter((o: PurchaseOrder) => 
-                o.line_type === 'active' && ['document_submitted', 'verified'].includes(o.status)
+                ['document_submitted', 'verified'].includes(o.status)
             );
             setOrders(pendingOrders);
             
             // بارگذاری اطلاعات خریداران
             const buyerIds = [...new Set(pendingOrders.map((o: PurchaseOrder) => o.buyer_id))];
+            const sellerIds = [...new Set(pendingOrders.map((o: PurchaseOrder) => o.seller_id))];
+            
             for (const buyerId of buyerIds) {
                 try {
                     const { data: buyerData } = await supabase
@@ -50,6 +55,45 @@ const AdminVerificationPanel: React.FC = () => {
                             [buyerId]: {
                                 name: buyerData.name,
                                 phone: buyerData.phone_number || 'ثبت نشده'
+                            }
+                        }));
+                    }
+                    
+                    // بارگذاری KYC خریدار
+                    const { data: buyerKYCData } = await supabase
+                        .from('kyc_verifications')
+                        .select('national_card_front_url, national_card_back_url')
+                        .eq('user_id', buyerId)
+                        .single();
+                    
+                    if (buyerKYCData) {
+                        setBuyerKYC(prev => ({
+                            ...prev,
+                            [buyerId]: {
+                                national_card_front_url: buyerKYCData.national_card_front_url || '',
+                                national_card_back_url: buyerKYCData.national_card_back_url || ''
+                            }
+                        }));
+                    }
+                } catch (err) {
+                }
+            }
+            
+            // بارگذاری KYC فروشندگان
+            for (const sellerId of sellerIds) {
+                try {
+                    const { data: sellerKYCData } = await supabase
+                        .from('kyc_verifications')
+                        .select('national_card_front_url, national_card_back_url')
+                        .eq('user_id', sellerId)
+                        .single();
+                    
+                    if (sellerKYCData) {
+                        setSellerKYC(prev => ({
+                            ...prev,
+                            [sellerId]: {
+                                national_card_front_url: sellerKYCData.national_card_front_url || '',
+                                national_card_back_url: sellerKYCData.national_card_back_url || ''
                             }
                         }));
                     }
@@ -81,7 +125,14 @@ const AdminVerificationPanel: React.FC = () => {
     };
 
     const handleApproveDocument = async (order: PurchaseOrder) => {
+        // جلوگیری از کلیک مکرر
+        if (processing[order.id]) {
+            return;
+        }
+        
         try {
+            setProcessing(prev => ({...prev, [order.id]: true}));
+            
             // تغییر وضعیت به verified (منتظر تایید نهایی ادمین)
             await api.updatePurchaseOrderStatus(order.id, 'verified');
             
@@ -100,6 +151,8 @@ const AdminVerificationPanel: React.FC = () => {
             loadOrders();
         } catch (error: any) {
             showNotification(`خطا: ${error.message || 'خطای نامشخص'}`, 'error');
+        } finally {
+            setProcessing(prev => ({...prev, [order.id]: false}));
         }
     };
 
@@ -135,35 +188,56 @@ const AdminVerificationPanel: React.FC = () => {
 
     const handleApproveFinal = async (order: PurchaseOrder) => {
         try {
+            console.log('🔄 شروع تایید نهایی سفارش', order.id);
+            
             // تغییر وضعیت به completed و واریز پول
+            console.log('1️⃣ به‌روزرسانی وضعیت سفارش...');
             await api.updatePurchaseOrderStatus(order.id, 'completed');
+            console.log('✅ وضعیت سفارش به‌روزرسانی شد');
             
             if (user) {
-                await api.approvePurchase(order.id, user.id);
+                console.log('2️⃣ تایید خرید و ثبت تراکنش‌ها...');
+                try {
+                    await api.approvePurchase(order.id, user.id);
+                    console.log('✅ تراکنش‌ها ثبت شدند');
+                } catch (approveError: any) {
+                    console.error('❌ خطا در approvePurchase:', approveError);
+                    showNotification(`خطا در ثبت تراکنش‌ها: ${approveError.message}`, 'error');
+                    // ادامه می‌دهیم تا پیام‌ها ارسال شوند
+                }
             }
             
             // اطلاع به هر دو طرف
             if (user) {
-                await api.sendSupportMessage(
-                    order.id,
-                    user.id,
-                    order.buyer_id,
-                    '✅ معامله شما تکمیل شد و پول به فروشنده منتقل شد',
-                    'response'
-                );
-                
-                await api.sendSupportMessage(
-                    order.id,
-                    user.id,
-                    order.seller_id,
-                    '💰 معامله تکمیل شد و پول به حساب شما واریز شد',
-                    'response'
-                );
+                console.log('3️⃣ ارسال پیام‌ها...');
+                try {
+                    await api.sendSupportMessage(
+                        order.id,
+                        user.id,
+                        order.buyer_id,
+                        '✅ معامله شما تکمیل شد و پول به فروشنده منتقل شد',
+                        'response'
+                    );
+                    
+                    await api.sendSupportMessage(
+                        order.id,
+                        user.id,
+                        order.seller_id,
+                        '💰 معامله تکمیل شد و پول به حساب شما واریز شد',
+                        'response'
+                    );
+                    console.log('✅ پیام‌ها ارسال شدند');
+                } catch (messageError: any) {
+                    console.error('❌ خطا در ارسال پیام:', messageError);
+                    // پیام‌ها مهم نیستند، ادامه می‌دهیم
+                }
             }
             
             showNotification('✅ معامله تکمیل شد و پول واریز شد', 'success');
+            console.log('✅ تایید نهایی با موفقیت انجام شد');
             loadOrders();
         } catch (error: any) {
+            console.error('❌ خطای کلی در handleApproveFinal:', error);
             showNotification(`خطا: ${error.message || 'خطای نامشخص'}`, 'error');
         }
     };
@@ -304,6 +378,72 @@ const AdminVerificationPanel: React.FC = () => {
                                     )}
                                 </div>
 
+                                {/* کارت ملی خریدار */}
+                                {buyerKYC[order.buyer_id] && (buyerKYC[order.buyer_id].national_card_front_url || buyerKYC[order.buyer_id].national_card_back_url) && (
+                                    <div className="bg-purple-50 dark:bg-purple-900/30 p-4 rounded-lg mb-4">
+                                        <h5 className="font-semibold mb-3 text-purple-800 dark:text-purple-300">🪪 کارت ملی خریدار:</h5>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            {buyerKYC[order.buyer_id].national_card_front_url && (
+                                                <div>
+                                                    <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">روی کارت:</p>
+                                                    <a href={buyerKYC[order.buyer_id].national_card_front_url} target="_blank" rel="noopener noreferrer">
+                                                        <img 
+                                                            src={buyerKYC[order.buyer_id].national_card_front_url} 
+                                                            alt="Front" 
+                                                            className="w-full h-32 object-cover rounded border-2 border-purple-300 hover:border-purple-500 cursor-pointer transition"
+                                                        />
+                                                    </a>
+                                                </div>
+                                            )}
+                                            {buyerKYC[order.buyer_id].national_card_back_url && (
+                                                <div>
+                                                    <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">پشت کارت:</p>
+                                                    <a href={buyerKYC[order.buyer_id].national_card_back_url} target="_blank" rel="noopener noreferrer">
+                                                        <img 
+                                                            src={buyerKYC[order.buyer_id].national_card_back_url} 
+                                                            alt="Back" 
+                                                            className="w-full h-32 object-cover rounded border-2 border-purple-300 hover:border-purple-500 cursor-pointer transition"
+                                                        />
+                                                    </a>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* کارت ملی فروشنده */}
+                                {sellerKYC[order.seller_id] && (sellerKYC[order.seller_id].national_card_front_url || sellerKYC[order.seller_id].national_card_back_url) && (
+                                    <div className="bg-green-50 dark:bg-green-900/30 p-4 rounded-lg mb-4">
+                                        <h5 className="font-semibold mb-3 text-green-800 dark:text-green-300">🪪 کارت ملی فروشنده:</h5>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            {sellerKYC[order.seller_id].national_card_front_url && (
+                                                <div>
+                                                    <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">روی کارت:</p>
+                                                    <a href={sellerKYC[order.seller_id].national_card_front_url} target="_blank" rel="noopener noreferrer">
+                                                        <img 
+                                                            src={sellerKYC[order.seller_id].national_card_front_url} 
+                                                            alt="Front" 
+                                                            className="w-full h-32 object-cover rounded border-2 border-green-300 hover:border-green-500 cursor-pointer transition"
+                                                        />
+                                                    </a>
+                                                </div>
+                                            )}
+                                            {sellerKYC[order.seller_id].national_card_back_url && (
+                                                <div>
+                                                    <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">پشت کارت:</p>
+                                                    <a href={sellerKYC[order.seller_id].national_card_back_url} target="_blank" rel="noopener noreferrer">
+                                                        <img 
+                                                            src={sellerKYC[order.seller_id].national_card_back_url} 
+                                                            alt="Back" 
+                                                            className="w-full h-32 object-cover rounded border-2 border-green-300 hover:border-green-500 cursor-pointer transition"
+                                                        />
+                                                    </a>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
                                 {/* مرحله 1: تایید مدارک */}
                                 {order.status === 'document_submitted' && (
                                     <div className="border-t pt-4 mt-4">
@@ -352,13 +492,15 @@ const AdminVerificationPanel: React.FC = () => {
                                             <div className="grid grid-cols-2 gap-3">
                                                 <button
                                                     onClick={() => handleApproveDocument(order)}
-                                                    className="bg-green-600 text-white px-4 py-3 rounded-lg hover:bg-green-700 font-semibold transition"
+                                                    disabled={processing[order.id]}
+                                                    className="bg-green-600 text-white px-4 py-3 rounded-lg hover:bg-green-700 font-semibold transition disabled:bg-gray-400 disabled:cursor-not-allowed"
                                                 >
-                                                    ✅ تایید مدارک
+                                                    {processing[order.id] ? '⏳ در حال پردازش...' : '✅ تایید مدارک'}
                                                 </button>
                                                 <button
                                                     onClick={() => setShowRejectDocForm(prev => ({...prev, [order.id]: !prev[order.id]}))}
-                                                    className="bg-red-600 text-white px-4 py-3 rounded-lg hover:bg-red-700 font-semibold transition"
+                                                    disabled={processing[order.id]}
+                                                    className="bg-red-600 text-white px-4 py-3 rounded-lg hover:bg-red-700 font-semibold transition disabled:bg-gray-400 disabled:cursor-not-allowed"
                                                 >
                                                     ❌ رد مدارک
                                                 </button>

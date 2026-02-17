@@ -192,6 +192,12 @@ const AdminSettings: React.FC = () => {
             label: 'عمومی',
             color: 'from-gray-500 to-slate-600',
             description: 'تنظیمات عمومی سایت'
+        },
+        kyc: {
+            icon: '🔐',
+            label: 'احراز هویت',
+            color: 'from-red-500 to-pink-600',
+            description: 'تنظیمات احراز هویت کاربران (KYC)'
         }
     };
 
@@ -278,7 +284,7 @@ const AdminSettings: React.FC = () => {
         }
     };
 
-    const categories = ['all', 'commission', 'auction', 'listing', 'payment', 'payment_gateways', 'rond', 'sms', 'general'];
+    const categories = ['all', 'commission', 'auction', 'listing', 'payment', 'payment_gateways', 'rond', 'sms', 'kyc', 'general'];
     
     let filteredSettings = activeCategory === 'all' 
         ? settings 

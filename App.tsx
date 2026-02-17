@@ -33,6 +33,8 @@ import AuctionsPage from './pages/AuctionsPage';
 import PackagesPage from './pages/PackagesPage';
 import CarrierSimsPage from './pages/CarrierSimsPage';
 import SuspendedAccountPage from './pages/SuspendedAccountPage';
+import KYCVerificationPage from './pages/KYCVerificationPage';
+import AdminKYCManagement from './pages/AdminKYCManagement';
 
 const PrivateRoute: React.FC<{ children: React.ReactElement; roles: string[] }> = ({ children, roles }) => {
   const { user, loading } = useAuth();
@@ -96,6 +98,15 @@ const AppContent: React.FC = () => {
               <Route path="/notifications" element={<NotificationsPage />} />
               <Route path="/invoices" element={<InvoicesPage />} />
               <Route path="/suspended" element={<SuspendedAccountPage />} />
+              <Route path="/kyc-verification" element={<KYCVerificationPage />} />
+              <Route 
+                path="/admin/kyc-management" 
+                element={
+                  <PrivateRoute roles={['admin']}>
+                    <AdminKYCManagement />
+                  </PrivateRoute>
+                } 
+              />
 
               <Route
                 path="/admin/*"

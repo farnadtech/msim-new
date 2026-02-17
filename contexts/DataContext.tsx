@@ -54,12 +54,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const fetchData = useCallback(async () => {
     // We don't set loading to true here to avoid UI flickering on refetches
     try {
-      const [usersData, simCardsData, packagesData, transactionsData] = await Promise.all([
-        api.getUsers(),
-        api.getSimCards(),
-        api.getPackages(),
-        api.getTransactions(),
-      ]);
+      const usersData = await api.getUsers();
+      const simCardsData = await api.getSimCards();
+      const packagesData = await api.getPackages();
+      const transactionsData = await api.getTransactions();
+      
       setUsers(usersData);
       setSimCards(simCardsData);
       setPackages(packagesData);

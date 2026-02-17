@@ -722,7 +722,7 @@ export const processAuctionWinnerPayment = async (
             user_id: simData?.seller_id,
             type: 'sale',
             amount: sellerReceivedAmount,
-            description: `فروش حراجی سیمکارت ${simData?.number} (کمیسیون: ${commissionAmount})`,
+            description: `فروش حراجی سیمکارت ${simData?.number} (کمیسیون: ${commissionAmount.toLocaleString('fa-IR')} تومان)`,
             date: new Date().toISOString()
         });
 

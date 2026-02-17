@@ -1105,9 +1105,12 @@ export const updatePackage = async (packageId: number, updatedData: Partial<Pack
 export const getTransactions = async (): Promise<Transaction[]> => {
     const { data, error } = await supabase
         .from('transactions')
-        .select('*');
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(1000);
         
     if (error) {
+        console.error('Error fetching transactions:', error);
         throw new Error(error.message);
     }
     
@@ -1719,11 +1722,13 @@ export const completeAuctionPurchaseForWinner = async (simId: number, buyerId: s
     }
     
     // Double-check that this auction hasn't already been processed by checking for existing purchase orders
+    // Only check for active purchase orders (not cancelled or failed)
     const { data: existingPurchaseOrder, error: purchaseOrderError } = await supabase
         .from('purchase_orders')
         .select('*')
         .eq('sim_card_id', simId)
         .eq('buyer_id', buyerId)
+        .in('status', ['pending', 'paid', 'completed'])
         .single();
         
     if (!purchaseOrderError && existingPurchaseOrder) {
@@ -1789,6 +1794,19 @@ export const completeAuctionPurchaseForWinner = async (simId: number, buyerId: s
         .eq('user_id', buyerId)
         .eq('auction_id', auctionDetails.id)
         .eq('status', 'blocked');
+    
+    // Record transaction for releasing guarantee deposit
+    if (guaranteeDepositAmount > 0) {
+        await supabase
+            .from('transactions')
+            .insert({
+                user_id: buyerId,
+                type: 'credit_released',
+                amount: guaranteeDepositAmount,
+                description: `آزادسازی حق ضمانت حراجی سیمکارت ${simData.number}`,
+                date: new Date().toISOString()
+            });
+    }
     
     // Update participant record
     await supabase
@@ -3093,7 +3111,7 @@ export const createPurchaseOrder = async (
         await supabase.from('transactions').insert({
             user_id: buyerId,
             type: 'debit_blocked',
-            amount: price,
+            amount: -price,
             description: `بلوک پول برای خرید سیمکارت (سفارش #${purchaseOrderId}): ${lineType === 'inactive' ? 'خط صفر' : 'خط فعال'}`,
             date: new Date().toISOString()
         });
@@ -3670,34 +3688,82 @@ export const approvePurchase = async (
         }
     }
     
-    // Create transaction record for seller
-    const { error: sellerTxError } = await supabase
-        .from('transactions')
-        .insert({
-            user_id: orderData.seller_id,
-            type: 'sale',
-            amount: orderData.seller_received_amount,
-            description: `فروش سیمکارت (سفارش #${purchaseOrderId})`,
-            date: new Date().toISOString()
-        });
+    // دریافت اطلاعات سیم‌کارت برای تشخیص نوع
+    const { data: simCardInfo } = await supabase
+        .from('sim_cards')
+        .select('number, is_active, type')
+        .eq('id', orderData.sim_card_id)
+        .single();
     
-    if (sellerTxError) {
-        throw new Error(sellerTxError.message);
+    const lineTypeText = orderData.line_type === 'inactive' ? 'صفر' : 'فعال';
+    const simNumber = simCardInfo?.number || 'نامشخص';
+    
+    // بررسی اینکه تراکنش قبلا ثبت نشده باشه
+    const { data: existingSellerTx } = await supabase
+        .from('transactions')
+        .select('id')
+        .eq('user_id', orderData.seller_id)
+        .ilike('description', `%سفارش #${purchaseOrderId}%`)
+        .eq('type', 'sale');
+    
+    if (!existingSellerTx || existingSellerTx.length === 0) {
+        // Create transaction record for seller
+        const { error: sellerTxError } = await supabase
+            .from('transactions')
+            .insert({
+                user_id: orderData.seller_id,
+                type: 'sale',
+                amount: orderData.seller_received_amount,
+                description: `فروش سیمکارت ${lineTypeText} ${simNumber} (سفارش #${purchaseOrderId})`,
+                date: new Date().toISOString()
+            });
+        
+        if (sellerTxError) {
+            console.error('❌ خطا در ثبت تراکنش فروشنده:', sellerTxError);
+            throw new Error(`خطا در ثبت تراکنش فروشنده: ${sellerTxError.message}`);
+        }
+        
+        console.log('✅ تراکنش فروشنده ثبت شد:', {
+            user_id: orderData.seller_id,
+            amount: orderData.seller_received_amount,
+            line_type: orderData.line_type
+        });
+    } else {
+        console.log('⚠️ تراکنش فروشنده قبلا ثبت شده');
     }
     
-    // Create transaction record for buyer
-    const { error: buyerTxError } = await supabase
+    // بررسی اینکه تراکنش خریدار قبلا ثبت نشده باشه
+    const { data: existingBuyerTx } = await supabase
         .from('transactions')
-        .insert({
-            user_id: orderData.buyer_id,
-            type: 'purchase',
-            amount: -orderData.price,
-            description: `خرید سیمکارت (سفارش #${purchaseOrderId})`,
-            date: new Date().toISOString()
-        });
+        .select('id')
+        .eq('user_id', orderData.buyer_id)
+        .ilike('description', `%سفارش #${purchaseOrderId}%`)
+        .eq('type', 'purchase');
     
-    if (buyerTxError) {
-        throw new Error(buyerTxError.message);
+    if (!existingBuyerTx || existingBuyerTx.length === 0) {
+        // Create transaction record for buyer
+        const { error: buyerTxError } = await supabase
+            .from('transactions')
+            .insert({
+                user_id: orderData.buyer_id,
+                type: 'purchase',
+                amount: -orderData.price,
+                description: `خرید سیمکارت ${lineTypeText} ${simNumber} (سفارش #${purchaseOrderId})`,
+                date: new Date().toISOString()
+            });
+        
+        if (buyerTxError) {
+            console.error('❌ خطا در ثبت تراکنش خریدار:', buyerTxError);
+            throw new Error(`خطا در ثبت تراکنش خریدار: ${buyerTxError.message}`);
+        }
+        
+        console.log('✅ تراکنش خریدار ثبت شد:', {
+            user_id: orderData.buyer_id,
+            amount: -orderData.price,
+            line_type: orderData.line_type
+        });
+    } else {
+        console.log('⚠️ تراکنش خریدار قبلا ثبت شده');
     }
     
     // ثبت کمیسیون در جدول commissions
@@ -4405,6 +4471,23 @@ export const verifySimVerificationCode = async (
     }
 };
 
+/**
+ * Get KYC verification data for a user
+ */
+export const getKYCVerification = async (userId: string): Promise<any> => {
+    const { data, error } = await supabase
+        .from('kyc_verifications')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+    
+    if (error) {
+        return null;
+    }
+    
+    return data;
+};
+
 // Export all functions as an object
 const api = {
     signup,
@@ -4512,6 +4595,7 @@ const api = {
     deleteSimCard,
     sendSimVerificationCode,
     verifySimVerificationCode,
+    getKYCVerification,
     supabase, // اضافه کردن supabase برای دسترسی مستقیم
 };
 

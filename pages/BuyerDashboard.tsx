@@ -5,6 +5,7 @@ import SecurePaymentsDisplay from '../components/SecurePaymentsDisplay';
 import BuyerPaymentCodeSection from '../components/BuyerPaymentCodeSection';
 import BuyerOrderTrackingPage from './BuyerOrderTrackingPage';
 import BuyerActivationRequestsPanel from './BuyerActivationRequestsPanel';
+import KYCGuard from '../components/KYCGuard';
 import { useAuth } from '../hooks/useAuth';
 import { useData } from '../hooks/useData';
 import { useNotification } from '../contexts/NotificationContext';
@@ -186,7 +187,7 @@ const MyBids = () => {
 
 const BuyerWallet = ({ onTransaction }: { onTransaction: (amount: number, type: 'deposit' | 'withdrawal') => Promise<void> }) => {
     const { user } = useAuth();
-    const { transactions } = useData();
+    const { transactions, fetchData } = useData();
     const { showNotification } = useNotification();
     const [isModalOpen, setModalOpen] = useState(false);
     const [modalType, setModalType] = useState<'deposit' | 'withdrawal'>('deposit');
@@ -245,7 +246,13 @@ const BuyerWallet = ({ onTransaction }: { onTransaction: (amount: number, type: 
     }, []);
 
     if (!user) return null;
-    const myTransactions = transactions.filter(t => t.user_id === user.id).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    
+    // فیلتر تراکنش‌های کاربر - مقایسه string با string
+    const myTransactions = transactions.filter(t => {
+        const txUserId = typeof t.user_id === 'string' ? t.user_id : String(t.user_id);
+        const match = txUserId === user.id;
+        return match;
+    }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     // تابع برای تعیین رنگ تراکنش
     const getTransactionColor = (transaction: any) => {
@@ -395,7 +402,16 @@ const BuyerWallet = ({ onTransaction }: { onTransaction: (amount: number, type: 
                     <button onClick={() => handleOpenModal('withdrawal')} className="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700">برداشت از کیف پول</button>
                 </div>
             </div>
-            <h3 className="font-bold mb-3">تاریخچه تراکنش ها</h3>
+            <div className="flex justify-between items-center mb-3">
+                <h3 className="font-bold">تاریخچه تراکنش ها</h3>
+                <button 
+                    onClick={() => fetchData()} 
+                    className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-sm"
+                    title="بروزرسانی تراکنش‌ها"
+                >
+                    🔄 بروزرسانی
+                </button>
+            </div>
             {myTransactions.length > 0 ? myTransactions.map(t => (
                 <div key={t.id} className="border-b dark:border-gray-700 py-2 flex justify-between">
                     <span>{t.description} - <span className="text-xs text-gray-500">{new Date(t.date).toLocaleDateString('fa-IR')}</span></span>

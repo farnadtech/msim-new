@@ -15,6 +15,7 @@ import AdminListingsManagement from './AdminListingsManagement';
 import AdminSettings from './AdminSettings';
 import AdminSuspensionsPanel from '../components/AdminSuspensionsPanel';
 import AdminSuspensionRequestsPanel from '../components/AdminSuspensionRequestsPanel';
+import AdminKYCManagement from './AdminKYCManagement';
 
 const AdminSeedNotice: React.FC<{ onSeeded: () => void }> = ({ onSeeded }) => {
     const [isLoading, setIsLoading] = useState(false);
@@ -483,6 +484,7 @@ const sidebar = (
       <NavItem to="listings">📋 مدیریت آگهی‌ها</NavItem>
       <NavItem to="suspensions">🚫 مدیریت تعلیق‌ها</NavItem>
       <NavItem to="suspension-requests">📝 درخواست‌های رفع تعلیق</NavItem>
+      <NavItem to="kyc-management">🔐 احراز هویت (KYC)</NavItem>
       <NavItem to="settings">⚙️ تنظیمات سایت</NavItem>
       <NavItem to="/invoices">📄 فاکتورها</NavItem>
       <NavItem to="/notifications">🔔 اعلانات</NavItem>
@@ -508,6 +510,7 @@ const AdminDashboard: React.FC = () => {
             <Route path="listings" element={<AdminListingsManagement />} />
             <Route path="suspensions" element={<AdminSuspensionsPanel />} />
             <Route path="suspension-requests" element={<AdminSuspensionRequestsPanel />} />
+            <Route path="kyc-management" element={<AdminKYCManagement />} />
             <Route path="settings" element={<AdminSettings />} />
         </Routes>
     </DashboardLayout>

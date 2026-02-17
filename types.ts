@@ -17,6 +17,9 @@ export interface User {
   suspension_reason?: string;
   negative_score?: number;
   last_penalty_at?: string;
+  // KYC fields
+  is_verified?: boolean;
+  kyc_submitted_at?: string;
 }
 
 export type SimCardTypeOption = 'fixed' | 'auction' | 'inquiry';
@@ -296,6 +299,32 @@ export interface ActivationRequest {
     verified_at?: string;
     created_at: string;
     updated_at: string;
+}
+
+// KYC Verification Types
+export type KYCStatus = 'pending' | 'approved' | 'rejected';
+
+export interface KYCVerification {
+    id: number;
+    user_id: string;
+    full_name: string;
+    national_code: string;
+    birth_date?: string;
+    phone_number: string;
+    address?: string;
+    city?: string;
+    postal_code?: string;
+    national_card_front_url?: string;
+    national_card_back_url?: string;
+    selfie_with_card_url?: string;
+    status: KYCStatus;
+    reviewed_by?: string;
+    reviewed_at?: string;
+    rejection_reason?: string;
+    admin_notes?: string;
+    created_at: string;
+    updated_at: string;
+    submitted_at?: string;
 }
 
 // Site Settings Types

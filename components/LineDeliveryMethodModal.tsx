@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNotification } from '../contexts/NotificationContext';
+import * as settingsService from '../services/settings-service';
 
 interface DeliveryAddress {
     address: string;
@@ -29,6 +30,8 @@ const LineDeliveryMethodModal: React.FC<LineDeliveryMethodModalProps> = ({
     const [selectedMethod, setSelectedMethod] = useState<'activation_code' | 'physical_card' | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [showAddressForm, setShowAddressForm] = useState(false);
+    const [buyerCanReceiveCode, setBuyerCanReceiveCode] = useState(false);
+    const [loadingSettings, setLoadingSettings] = useState(true);
     const [address, setAddress] = useState<DeliveryAddress>({
         address: '',
         city: '',
@@ -36,8 +39,31 @@ const LineDeliveryMethodModal: React.FC<LineDeliveryMethodModalProps> = ({
         phone: ''
     });
 
+    useEffect(() => {
+        loadSettings();
+    }, []);
+
+    const loadSettings = async () => {
+        try {
+            setLoadingSettings(true);
+            const setting = await settingsService.getSetting('buyer_can_receive_activation_code');
+            setBuyerCanReceiveCode(setting === 'true');
+        } catch (error) {
+            console.error('Error loading settings:', error);
+            setBuyerCanReceiveCode(false);
+        } finally {
+            setLoadingSettings(false);
+        }
+    };
+
     const handleMethodClick = (method: 'activation_code' | 'physical_card') => {
         if (isProcessing) return;
+        
+        // Check if buyer can receive activation code
+        if (method === 'activation_code' && !buyerCanReceiveCode) {
+            showNotification('دریافت کد فعال‌سازی در حال حاضر غیرفعال است', 'error');
+            return;
+        }
         
         setSelectedMethod(method);
         
@@ -101,8 +127,15 @@ const LineDeliveryMethodModal: React.FC<LineDeliveryMethodModalProps> = ({
                             سیمکارت {simNumber} را چگونه می‌خواهید تحویل بگیرید؟
                         </p>
 
+                        {loadingSettings ? (
+                            <div className="flex justify-center py-8">
+                                <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-600"></div>
+                            </div>
+                        ) : (
+                            <>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                            {/* Activation Code Option */}
+                            {/* Activation Code Option - Only show if enabled */}
+                            {buyerCanReceiveCode && (
                             <div
                                 onClick={() => handleMethodClick('activation_code')}
                                 className={`p-6 rounded-lg border-2 cursor-pointer transition-all ${
@@ -129,6 +162,7 @@ const LineDeliveryMethodModal: React.FC<LineDeliveryMethodModalProps> = ({
                                     </div>
                                 </div>
                             </div>
+                            )}
 
                             {/* Physical Card Option */}
                             <div
@@ -137,7 +171,7 @@ const LineDeliveryMethodModal: React.FC<LineDeliveryMethodModalProps> = ({
                                     selectedMethod === 'physical_card'
                                         ? 'border-green-600 bg-green-50 dark:bg-green-900/30'
                                         : 'border-gray-300 dark:border-gray-600 hover:border-green-400'
-                                } ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                } ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''} ${!buyerCanReceiveCode ? 'md:col-span-2' : ''}`}
                             >
                                 <div className="flex items-start gap-4">
                                     <div className="flex-shrink-0">
@@ -159,6 +193,14 @@ const LineDeliveryMethodModal: React.FC<LineDeliveryMethodModalProps> = ({
                             </div>
                         </div>
 
+                        {!buyerCanReceiveCode && (
+                            <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-600 rounded-lg p-4 mb-6">
+                                <p className="text-sm text-blue-800 dark:text-blue-200">
+                                    ℹ️ در حال حاضر فقط روش تحویل فیزیکی فعال است.
+                                </p>
+                            </div>
+                        )}
+
                         {isInactiveLine && (
                             <div className="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-300 dark:border-yellow-600 rounded-lg p-4 mb-6">
                                 <p className="text-sm text-yellow-800 dark:text-yellow-200">
@@ -176,6 +218,8 @@ const LineDeliveryMethodModal: React.FC<LineDeliveryMethodModalProps> = ({
                                 انصراف
                             </button>
                         </div>
+                        </>
+                        )}
                     </>
                 ) : (
                     <>

@@ -3,9 +3,11 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useData } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
+import { useKYCStatus } from '../hooks/useKYCStatus';
 import { SimCard as SimCardType, User } from '../types';
 import { useNotification } from '../contexts/NotificationContext';
 import LineDeliveryMethodModal from '../components/LineDeliveryMethodModal';
+import KYCGuard from '../components/KYCGuard';
 import api from '../services/api-supabase';
 import { supabase } from '../services/supabase';
 import * as settingsService from '../services/settings-service';
@@ -56,6 +58,7 @@ const SimDetailsPage: React.FC = () => {
     const { simCards, users, purchaseSim, placeBid, loading } = useData();
     const { user: currentUser } = useAuth();
     const { showNotification } = useNotification();
+    const { isVerified, needsKYC, kycRequired } = useKYCStatus();
     
     const [sim, setSim] = useState<SimCardType | null>(null);
     const [seller, setSeller] = useState<User | null>(null);
@@ -143,6 +146,14 @@ const SimDetailsPage: React.FC = () => {
             navigate('/login');
             return;
         }
+        
+        // بررسی احراز هویت
+        if (kycRequired && !isVerified) {
+            showNotification('برای خرید سیم‌کارت، ابتدا باید احراز هویت کنید', 'error');
+            navigate('/kyc-verification');
+            return;
+        }
+        
         if (!sim) return;
 
         if (sim.type === 'fixed') {
@@ -449,6 +460,14 @@ const SimDetailsPage: React.FC = () => {
             navigate('/login');
             return;
         }
+        
+        // بررسی احراز هویت
+        if (kycRequired && !isVerified) {
+            showNotification('برای شرکت در حراجی، ابتدا باید احراز هویت کنید', 'error');
+            navigate('/kyc-verification');
+            return;
+        }
+        
         if (sim.seller_id === currentUser.id) {
             showNotification('شما نمی توانید روی سیمکارت خود پیشنهاد ثبت کنید.', 'error');
             return;
